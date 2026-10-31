@@ -1,0 +1,124 @@
+{
+  "id": "1",
+  "key": "DEMO-1",
+  "names": {
+    "customfield_10042": "Acceptance Criteria"
+  },
+  "fields": {
+    "summary": "Customer address management",
+    "issuetype": {
+      "name": "Epic",
+      "hierarchyLevel": 1
+    },
+    "status": {
+      "name": "In Progress"
+    },
+    "priority": {
+      "name": "High"
+    },
+    "labels": [
+      "ui"
+    ],
+    "components": [
+      {
+        "name": "Profile"
+      }
+    ],
+    "fixVersions": [],
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Customers can manage saved addresses from their "
+            },
+            {
+              "type": "text",
+              "text": "Profile",
+              "marks": [
+                {
+                  "type": "strong"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " page."
+            }
+          ]
+        }
+      ]
+    },
+    "customfield_10042": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "orderedList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "User can add a new address"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Postcode is validated"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "comment": {
+      "comments": [
+        {
+          "author": {
+            "displayName": "Dev One"
+          },
+          "created": "2026-10-01T10:00:00.000+0000",
+          "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "MR: https://gitlab.com/demo/web-ui/-/merge_requests/7"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "attachment": [],
+    "subtasks": [],
+    "issuelinks": []
+  }
+}

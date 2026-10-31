@@ -1,0 +1,61 @@
+# uitest configuration. Values like ${VAR} are read from the environment / .env (Bun loads .env automatically).
+
+agent:
+  provider: copilot          # copilot | claude | codex | mock  (add more in src/agents/registry.ts)
+  model: null                # e.g. claude-sonnet-5-5, gpt-5-codex; null = CLI default
+  bin: null                  # override the CLI binary path
+  timeoutSec: 900            # per agent call
+  maxQuestionRounds: 8       # plan-phase question/answer rounds before giving up
+  extraArgs: []              # appended to every agent CLI invocation
+
+browser:
+  mcp: chrome-devtools       # preset, or a custom server: { name, command, args, env }
+  browserUrl: http://127.0.0.1:9222
+  autoConnect: false         # true = chrome-devtools-mcp --autoConnect (Chrome 144+, enable at chrome://inspect/#remote-debugging)
+  appBaseUrl: https://app.example.com
+  tabMatch: app.example.com  # the open, signed-in tab to use
+  loggedInCheck:
+    notUrlContains: [onelogin.com]   # tab URL containing these means "not signed in"
+    selector: null                   # optional CSS selector that only exists when signed in
+  allowedOrigins: [https://app.example.com]
+  planObserveOnly: false     # true = remove click/type tools during planning
+  enforceAllowedOrigins: false  # true = hard-block other origins in the browser (Chrome 149+; also blocks 3rd-party CDNs)
+
+jira:
+  baseUrl: https://your-site.atlassian.net
+  email: ${JIRA_EMAIL}
+  token: ${JIRA_API_TOKEN}
+  acceptanceCriteriaField: null      # e.g. customfield_10042; null = auto-detect by field name
+  includeComments: true
+  maxChildren: 100
+  rovo:
+    enabled: false                   # give the agent the Atlassian Remote MCP (Rovo search, Confluence)
+    url: https://mcp.atlassian.com/v1/sse
+
+gitlab:
+  baseUrl: https://gitlab.com
+  token: ${GITLAB_TOKEN}             # scopes: read_api, read_repository
+  searchByKey: true                  # also find MRs whose title/description/branch mention the ticket
+  maxDiffBytes: 200000
+
+repos:
+  - name: web-ui
+    path: ~/work/web-ui
+    role: ui
+    gitlabProject: your-group/web-ui
+  - name: orders-api
+    path: ~/work/orders-api
+    role: downstream
+    gitlabProject: your-group/orders-api
+
+indexing:
+  enabled: true
+  strategy: lexical
+  fetchBeforeIndex: false            # true = `git fetch --all` before indexing (never checks out or pulls)
+  exclude: [node_modules, dist, build, .git, coverage]
+  cacheDir: .uitest/index
+
+output:
+  dir: ./runs
+
+extraMcpServers: []                  # any other MCP servers to hand the agent

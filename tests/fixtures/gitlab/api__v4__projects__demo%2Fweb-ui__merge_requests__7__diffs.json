@@ -1,0 +1,10 @@
+[
+  {
+    "old_path": "src/components/AddressForm.tsx",
+    "new_path": "src/components/AddressForm.tsx",
+    "new_file": true,
+    "deleted_file": false,
+    "renamed_file": false,
+    "diff": "@@ -0,0 +1,3 @@\n+export function AddressForm() {\n+  return <form/>;\n+}\n"
+  }
+]

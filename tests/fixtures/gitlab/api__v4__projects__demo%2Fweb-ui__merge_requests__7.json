@@ -1,0 +1,12 @@
+{
+  "iid": 7,
+  "project_id": 1,
+  "title": "DEMO-2 Add address form",
+  "description": "Adds AddressForm",
+  "state": "merged",
+  "web_url": "https://gitlab.com/demo/web-ui/-/merge_requests/7",
+  "source_branch": "feature/DEMO-2-address",
+  "target_branch": "main",
+  "merge_commit_sha": "abc1234567890",
+  "merged_at": "2026-10-02T12:00:00Z"
+}
