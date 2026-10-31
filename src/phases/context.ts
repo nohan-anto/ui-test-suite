@@ -9,7 +9,7 @@ import { GraphqlLinker, graphqlChainsToMarkdown } from "../repos/graphql-impact.
 import { computeImpact, impactToMarkdown, linkDownstream, RepoGraph, type RepoImpact } from "../repos/impact.ts";
 import { getIndex, indexSummaryMarkdown, type RepoIndex } from "../repos/indexer.ts";
 import type { GitLabClient } from "../sources/gitlab/client.ts";
-import { collectMergeRequests, mrsToMarkdown, type CollectedMR } from "../sources/gitlab/collect.ts";
+import { collectMergeRequests, mrsToMarkdown, sameProject, type CollectedMR } from "../sources/gitlab/collect.ts";
 import type { JiraClient } from "../sources/jira/client.ts";
 import { collectTicket, storyText, storyToMarkdown, type TicketBundle } from "../sources/jira/collect.ts";
 import { redact, writeText } from "../util/index.ts";
@@ -100,7 +100,7 @@ export async function buildContext(cfg: Config, ticket: string, contextDir: stri
       state: m.mr.state,
       url: m.mr.web_url,
       sha: m.mr.merge_commit_sha ?? m.mr.squash_commit_sha ?? m.mr.sha,
-      repo: cfg.repos.find((r) => r.gitlabProject === m.ref.project)?.name,
+      repo: cfg.repos.find((r) => sameProject(r.gitlabProject, m.ref.project))?.name,
     })),
     repos: repoStates,
     files,
@@ -125,7 +125,7 @@ async function analyseRepos(cfg: Config, keys: string[], mrs: CollectedMR[], log
       log(`git fetch in ${repo.name}…`);
       await fetchAll(repo.path);
     }
-    const repoMrs = mrs.filter((m) => m.ref.project === repo.gitlabProject);
+    const repoMrs = mrs.filter((m) => sameProject(m.ref.project, repo.gitlabProject));
     const state: RepoState = { name: repo.name, role: repo.role, path: repo.path, head: "", commits: [], localKeyCommits: [] };
     for (const m of repoMrs) {
       for (const c of m.commits) {

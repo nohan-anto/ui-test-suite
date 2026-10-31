@@ -13,7 +13,7 @@ import { toCodexOverrides, toMcpJson } from "../src/mcp/servers.ts";
 import { PlanReplySchema, type TestCase } from "../src/phases/protocol.ts";
 import { normaliseEndpoint } from "../src/repos/impact.ts";
 import { fileBasedRoute, scanSource } from "../src/repos/indexer.ts";
-import { extractMrRefs, extractShortMrRefs } from "../src/sources/gitlab/collect.ts";
+import { extractMrRefs, extractShortMrRefs, sameProject } from "../src/sources/gitlab/collect.ts";
 import { adfToMarkdown } from "../src/sources/jira/adf-to-md.ts";
 
 const minimalConfig = `
@@ -61,6 +61,13 @@ describe("MR link extraction", () => {
   test("full URLs with nested groups, deduped", () => {
     const text = "see https://gitlab.com/a/b/c/-/merge_requests/12 and https://gitlab.com/a/b/c/-/merge_requests/12#note_1, https://gitlab.com/x/y/-/merge_requests/3/diffs";
     expect(extractMrRefs(text, "https://gitlab.com")).toEqual([{ project: "a/b/c", iid: 12 }, { project: "x/y", iid: 3 }]);
+  });
+  test("nested groups: case-insensitive matching and dedupe", () => {
+    const text = "https://gitlab.com/Platform/Web/web-ui/-/merge_requests/7 and https://gitlab.com/platform/web/web-ui/-/merge_requests/7";
+    expect(extractMrRefs(text, "https://gitlab.com")).toEqual([{ project: "Platform/Web/web-ui", iid: 7 }]);
+    expect(sameProject("Platform/Web/web-ui", "platform/web/web-ui/")).toBe(true);
+    expect(sameProject("platform/web/web-ui.git", "platform/web/web-ui")).toBe(true);
+    expect(sameProject("platform/web/web-ui", "platform/web-ui")).toBe(false);
   });
   test("ignores other hosts", () => {
     expect(extractMrRefs("https://gitlab.example.org/a/b/-/merge_requests/1", "https://gitlab.com")).toEqual([]);

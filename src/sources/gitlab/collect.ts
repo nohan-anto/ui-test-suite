@@ -16,6 +16,15 @@ export interface CollectedMR {
   foundVia: string[];
 }
 
+/** GitLab project paths are case-insensitive; also tolerate stray slashes or a ".git" suffix in config. */
+export function normaliseProject(p: string): string {
+  return p.trim().replace(/^\/+|\/+$/g, "").replace(/\.git$/, "").toLowerCase();
+}
+
+export function sameProject(a: string | undefined, b: string | undefined): boolean {
+  return !!a && !!b && normaliseProject(a) === normaliseProject(b);
+}
+
 /** Extract GitLab MR references (full URLs) from free text. */
 export function extractMrRefs(text: string, gitlabBaseUrl: string): MrRef[] {
   const host = new URL(gitlabBaseUrl).host.replace(/\./g, "\\.");
@@ -24,7 +33,7 @@ export function extractMrRefs(text: string, gitlabBaseUrl: string): MrRef[] {
   const out: MrRef[] = [];
   for (const m of text.matchAll(re)) {
     const ref = { project: m[1]!, iid: Number(m[2]) };
-    const id = `${ref.project}!${ref.iid}`;
+    const id = `${normaliseProject(ref.project)}!${ref.iid}`;
     if (!seen.has(id)) {
       seen.add(id);
       out.push(ref);
@@ -54,7 +63,7 @@ export interface MrCollectOptions {
 export async function collectMergeRequests(client: GitLabClient, gitlabBaseUrl: string, opts: MrCollectOptions) {
   const found = new Map<string, { ref: MrRef; via: Set<string> }>();
   const add = (ref: MrRef, via: string) => {
-    const id = `${ref.project}!${ref.iid}`;
+    const id = `${normaliseProject(ref.project)}!${ref.iid}`;
     if (!found.has(id)) found.set(id, { ref, via: new Set() });
     found.get(id)!.via.add(via);
   };
