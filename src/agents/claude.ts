@@ -14,6 +14,7 @@ export class ClaudeAdapter extends CliAdapter {
 
   buildInvocation(req: AgentRequest, tmp: string): Invocation {
     const mcpPath = join(tmp, "mcp.json");
+    const systemPath = join(tmp, "system-prompt.md");
     const allowed = ["Read", "Grep", "Glob", ...req.mcpServers.map((s) => `mcp__${s.name}`)];
     const cmd = [
       this.bin,
@@ -21,7 +22,7 @@ export class ClaudeAdapter extends CliAdapter {
       "--output-format", "json",
       "--mcp-config", mcpPath,
       "--strict-mcp-config",
-      "--append-system-prompt", req.systemPrompt,
+      "--append-system-prompt-file", systemPath,
       "--allowedTools", allowed.join(","),
       "--disallowedTools", "Write,Edit,NotebookEdit,Bash",
     ];
@@ -31,7 +32,10 @@ export class ClaudeAdapter extends CliAdapter {
     return {
       cmd,
       stdin: req.prompt,
-      files: { [mcpPath]: JSON.stringify(toMcpJson(req.mcpServers, "claude"), null, 2) },
+      files: {
+        [mcpPath]: JSON.stringify(toMcpJson(req.mcpServers, "claude"), null, 2),
+        [systemPath]: req.systemPrompt,
+      },
     };
   }
 

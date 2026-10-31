@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { resolveCommand } from "./platform.ts";
 
 export function redact(text: string, secrets: string[]): string {
   let out = text;
@@ -30,7 +31,7 @@ export async function exec(
 ): Promise<ExecResult> {
   let proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
   try {
-    proc = Bun.spawn(cmd, {
+    proc = Bun.spawn(resolveCommand(cmd), {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
       stdin: "pipe",

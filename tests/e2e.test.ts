@@ -24,8 +24,11 @@ beforeAll(async () => {
   mkdirSync(join(repo, "src/pages/profile"), { recursive: true });
   await Bun.write(join(repo, "src/components/AddressForm.tsx"), `export function AddressForm() { return fetch("/api/v1/addresses"); }\n`);
   await Bun.write(join(repo, "src/pages/profile/addresses.tsx"), `import { AddressForm } from "../../components/AddressForm";\nexport default AddressForm;\n`);
-  for (const args of [["init", "-q"], ["add", "."], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "DEMO-2 add AddressForm"]]) {
-    await exec(["git", "-C", repo, ...args]);
+  // Neutralise global git config that can block or prompt (commit signing, hooks, autocrlf rewrites).
+  const isolated = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=", "-c", "core.autocrlf=false", "-c", "user.email=t@t", "-c", "user.name=t"];
+  for (const args of [["init", "-q"], ["add", "."], ["commit", "-q", "--no-verify", "-m", "DEMO-2 add AddressForm"]]) {
+    const r = await exec(["git", "-C", repo, ...isolated, ...args], { timeoutMs: 30_000, env: { GIT_TERMINAL_PROMPT: "0" } });
+    if (r.code !== 0) throw new Error(`git ${args[0]} failed (${r.code}${r.timedOut ? ", timed out" : ""}): ${r.stderr}`);
   }
   cfg = parseConfig(`
 agent: { provider: mock }
@@ -33,13 +36,20 @@ browser: { appBaseUrl: "https://app.example.com" }
 jira: { baseUrl: "https://demo.atlassian.net", email: "a@b.c", token: "jira-secret-123" }
 gitlab: { token: "gl-secret-456" }
 repos:
-  - { name: web-ui, path: "${repo}", role: ui, gitlabProject: demo/web-ui }
-indexing: { cacheDir: "${join(work, "cache")}" }
-output: { dir: "${join(work, "runs")}" }
+  - { name: web-ui, path: ${JSON.stringify(repo)}, role: ui, gitlabProject: demo/web-ui }
+indexing: { cacheDir: ${JSON.stringify(join(work, "cache"))} }
+output: { dir: ${JSON.stringify(join(work, "runs"))} }
 `);
-});
+}, 60_000); // git on Windows (antivirus, credential helpers) can be slow
 
-afterAll(() => rmSync(work, { recursive: true, force: true }));
+afterAll(() => {
+  // Windows can briefly keep handles open on files a child process touched; retry, and never fail the suite on cleanup.
+  try {
+    rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (e) {
+    console.warn(`could not remove ${work}: ${(e as Error).message}`);
+  }
+});
 
 test("plan → test → report, fully offline", async () => {
   const agent = new MockAdapter();
@@ -88,4 +98,4 @@ test("plan → test → report, fully offline", async () => {
   expect(only.results).toHaveLength(1);
   expect(await regenerateReport(cfg, "DEMO-1", "r1", "t2")).toBe(run.paths.latestReport);
   expect(await Bun.file(run.paths.latestReport).text()).toContain("**Result: PASSED**");
-});
+}, 120_000);

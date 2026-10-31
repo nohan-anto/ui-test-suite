@@ -1,5 +1,6 @@
 /** Provider-neutral MCP server specs. Adapters translate these into each agent CLI's own config format. */
 import type { Config, McpServerSpec } from "../config/schema.ts";
+import { npxServer } from "../util/platform.ts";
 
 export const CHROME_MCP_NAME = "chrome-devtools";
 
@@ -22,13 +23,13 @@ export function chromeDevtoolsServer(cfg: Config, opts: BrowserMcpOptions = {}):
     const origins = b.allowedOrigins.length ? b.allowedOrigins : [new URL(b.appBaseUrl).origin];
     for (const o of origins) args.push(`--allowedUrlPattern=${o.replace(/\/+$/, "")}/*`);
   }
-  return { name: CHROME_MCP_NAME, command: "npx", args, env: {}, headers: {} };
+  return { name: CHROME_MCP_NAME, ...npxServer(args), env: {}, headers: {} };
 }
 
 export function rovoServer(cfg: Config): McpServerSpec | null {
   if (!cfg.jira.rovo.enabled) return null;
   // Atlassian Remote MCP (Rovo). Auth is OAuth, completed by the agent CLI on first use.
-  return { name: "atlassian", command: "npx", args: ["-y", "mcp-remote", cfg.jira.rovo.url], env: {}, headers: {} };
+  return { name: "atlassian", ...npxServer(["-y", "mcp-remote", cfg.jira.rovo.url]), env: {}, headers: {} };
 }
 
 export function mcpServersFor(cfg: Config, opts: BrowserMcpOptions = {}): McpServerSpec[] {

@@ -52,7 +52,23 @@ runs/CIS-601/<plan-run>/
      ```
      Sign in through OneLogin once in that window and keep the app tab open. The session persists in that profile.
    - **Auto-connect (Chrome 144+).** Enable remote debugging at `chrome://inspect/#remote-debugging` in your normal Chrome and set `browser.autoConnect: true`.
-5. Run `uitest doctor`. It checks the agent CLI, the Chrome tab, Jira, GitLab and the repo paths.
+5. Run `uitest doctor`.
+
+### Windows notes
+
+- **Bun version:** `bun.lock` needs Bun ≥ 1.2. If `bun install` says *unknown lockfile version*, run `bun upgrade` (or reinstall: `powershell -c "irm bun.sh/install.ps1 | iex"`). If you can't upgrade, delete `bun.lock` and run `bun install` to regenerate it.
+- **Chrome debug profile** (PowerShell):
+  ```powershell
+  & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:USERPROFILE\.uitest-chrome"
+  ```
+- **Repo paths in YAML:** use forward slashes or single quotes. In double quotes, backslashes are escape characters:
+  ```yaml
+  path: C:/work/web-ui          # ok
+  path: 'C:\work\web-ui'          # ok
+  path: "C:\work\web-ui"          # wrong: \w is read as an escape
+  ```
+- npm-installed agent CLIs (`copilot.cmd`, `codex.cmd`) are started through `cmd.exe` automatically, and MCP servers use `cmd /c npx …`. You don't need to configure either.
+- `git` must be on PATH (Git for Windows). ripgrep is not required. It checks the agent CLI, the Chrome tab, Jira, GitLab and the repo paths.
 
 ## Commands
 

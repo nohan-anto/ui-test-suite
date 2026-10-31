@@ -1,7 +1,7 @@
 /** Map changed files (from MRs / local commits) to UI routes and screens. */
-import { basename, dirname, extname } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import type { RepoIndex } from "./indexer.ts";
-import { exec, uniq } from "../util/index.ts";
+import { uniq } from "../util/index.ts";
 
 export interface FileImpact {
   file: string;
@@ -20,22 +20,39 @@ export interface RepoImpact {
   uiConsumers: { endpoint: string; repo: string; file: string }[];
 }
 
+const CODE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte)$/;
+
+/** Reads each source file once per impact computation. Pure TS, so no ripgrep needed (e.g. on Windows). */
+class SourceCache {
+  private readonly texts = new Map<string, string>();
+  constructor(private readonly ix: RepoIndex) {}
+  async all(): Promise<Map<string, string>> {
+    if (!this.texts.size) {
+      for (const f of this.ix.files.filter((f) => CODE_EXT.test(f))) {
+        const bf = Bun.file(join(this.ix.root, f));
+        if (bf.size <= 400_000) this.texts.set(f, await bf.text().catch(() => ""));
+      }
+    }
+    return this.texts;
+  }
+}
+
 /** Files that import `file` (matched by module specifier ending in its extension-less basename path). */
-async function findImporters(ix: RepoIndex, file: string): Promise<string[]> {
+async function findImporters(cache: SourceCache, file: string): Promise<string[]> {
   const stem = basename(file, extname(file));
   const name = stem === "index" ? basename(dirname(file)) : stem;
   if (!name || name.length < 3) return [];
-  const pattern = `(from|import|require\\()\\s*\\(?["'\`][^"'\`]*/${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\.\\w+)?["'\`]`;
-  const r = await exec(["rg", "-l", "-e", pattern, "--glob", "!node_modules", "."], { cwd: ix.root, timeoutMs: 30_000 });
-  return r.stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((f) => f.replace(/^\.\//, ""))
-    .filter((f) => f !== file);
+  const re = new RegExp(
+    `(?:from|import|require\\()\\s*\\(?["'\`][^"'\`]*/${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\.\\w+)?["'\`]`,
+  );
+  const out: string[] = [];
+  for (const [f, text] of await cache.all()) if (f !== file && re.test(text)) out.push(f);
+  return out;
 }
 
 export async function computeImpact(ix: RepoIndex, changedFiles: string[], depth = 2): Promise<RepoImpact> {
   const files: FileImpact[] = [];
+  const cache = new SourceCache(ix);
   const routesByFile = new Map<string, string[]>();
   for (const r of ix.routes) routesByFile.set(r.file, [...(routesByFile.get(r.file) ?? []), r.path]);
 
@@ -45,7 +62,7 @@ export async function computeImpact(ix: RepoIndex, changedFiles: string[], depth
     for (let d = 0; d < depth && frontier.length; d++) {
       const next: string[] = [];
       for (const f of frontier.slice(0, 25)) {
-        for (const imp of await findImporters(ix, f)) {
+        for (const imp of await findImporters(cache, f)) {
           if (!importedBy.has(imp)) {
             importedBy.add(imp);
             next.push(imp);

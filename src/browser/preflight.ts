@@ -4,6 +4,11 @@
  */
 import type { Config } from "../config/schema.ts";
 import type { FetchFn } from "../sources/jira/client.ts";
+import { isWindows } from "../util/platform.ts";
+
+const CHROME_DEBUG_CMD = isWindows
+  ? `& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:USERPROFILE\\.uitest-chrome"`
+  : `google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.uitest-chrome"`;
 
 export interface CdpTarget {
   id: string;
@@ -74,7 +79,7 @@ export async function preflight(cfg: Config, fetchFn: FetchFn = fetch): Promise<
       mode: "browserUrl",
       problems: [
         `Chrome is not reachable at ${base}. Start Chrome with remote debugging, e.g.\n` +
-          `    google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.uitest-chrome"\n` +
+          `    ${CHROME_DEBUG_CMD}\n` +
           `  (Chrome 136+ ignores the port on the default profile), or set browser.autoConnect: true (Chrome 144+).`,
       ],
     };

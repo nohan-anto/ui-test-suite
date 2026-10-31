@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { ClaudeAdapter } from "../src/agents/claude.ts";
 import { CodexAdapter } from "../src/agents/codex.ts";
 import { CopilotAdapter } from "../src/agents/copilot.ts";
@@ -122,6 +123,7 @@ describe("agent JSON parsing", () => {
   });
 });
 
+const TMP = join("tmp", "x");
 const req: AgentRequest = {
   prompt: "PROMPT",
   systemPrompt: "SYSTEM",
@@ -134,32 +136,34 @@ const req: AgentRequest = {
 
 describe("adapters build the right command lines", () => {
   test("claude", () => {
-    const inv = new ClaudeAdapter().buildInvocation(req, "/tmp/x");
+    const inv = new ClaudeAdapter().buildInvocation(req, TMP);
     expect(inv.cmd.slice(0, 4)).toEqual(["claude", "-p", "--output-format", "json"]);
     expect(inv.cmd).toContain("--strict-mcp-config");
     expect(inv.cmd.join(" ")).toContain("--allowedTools Read,Grep,Glob,mcp__chrome-devtools");
     expect(inv.cmd.join(" ")).toContain("--add-dir /repo/a");
     expect(inv.cmd).not.toContain("/run"); // cwd, not --add-dir
     expect(inv.stdin).toBe("PROMPT");
-    expect(JSON.parse(inv.files["/tmp/x/mcp.json"]!).mcpServers["chrome-devtools"].command).toBe("npx");
+    expect(inv.files[join(TMP, "system-prompt.md")]).toBe("SYSTEM");
+    expect(JSON.parse(inv.files[join(TMP, "mcp.json")]!).mcpServers["chrome-devtools"].command).toBe("npx");
   });
   test("codex", () => {
-    const inv = new CodexAdapter().buildInvocation(req, "/tmp/x");
+    const inv = new CodexAdapter().buildInvocation(req, TMP);
     expect(inv.cmd.slice(0, 2)).toEqual(["codex", "exec"]);
     expect(inv.cmd.join(" ")).toContain("--sandbox read-only --cd /run");
     expect(inv.cmd).toContain('mcp_servers.chrome-devtools.command="npx"');
     expect(inv.cmd.at(-1)).toBe("-");
     expect(inv.stdin).toStartWith("SYSTEM");
-    expect(inv.outputFile).toBe("/tmp/x/last-message.txt");
+    expect(inv.outputFile).toBe(join(TMP, "last-message.txt"));
   });
   test("copilot", () => {
-    const inv = new CopilotAdapter().buildInvocation(req, "/tmp/x");
+    const inv = new CopilotAdapter().buildInvocation(req, TMP);
     expect(inv.cmd[1]).toBe("-p");
-    expect(inv.cmd[2]).toStartWith("SYSTEM");
-    expect(inv.cmd.join(" ")).toContain("--additional-mcp-config @/tmp/x/mcp.json");
+    expect(inv.cmd.join(" ")).toContain(`--additional-mcp-config @${join(TMP, "mcp.json")}`);
+    expect(inv.cmd[2]).toContain(join(TMP, "task.md"));
+    expect(inv.files[join(TMP, "task.md")]).toStartWith("SYSTEM");
     expect(inv.cmd.join(" ")).toContain("--allow-tool chrome-devtools");
     expect(inv.cmd.join(" ")).toContain("--deny-tool write");
-    expect(JSON.parse(inv.files["/tmp/x/mcp.json"]!).mcpServers["chrome-devtools"].type).toBe("local");
+    expect(JSON.parse(inv.files[join(TMP, "mcp.json")]!).mcpServers["chrome-devtools"].type).toBe("local");
   });
   test("mcp translations", () => {
     expect(toMcpJson([{ name: "r", url: "https://r", args: [], env: {}, headers: {} }], "claude").mcpServers.r.type).toBe("http");
