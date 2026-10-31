@@ -38,15 +38,21 @@ gitlab:
   searchByKey: true                  # also find MRs whose title/description/branch mention the ticket
   maxDiffBytes: 200000
 
+# role: ui → the front end | gateway → GraphQL middle service the UI calls | downstream → subgraphs/services behind it
+# Windows paths: use forward slashes (C:/work/web-ui) or single quotes.
 repos:
   - name: web-ui
     path: ~/work/web-ui
     role: ui
     gitlabProject: your-group/web-ui
-  - name: orders-api
-    path: ~/work/orders-api
+  - name: graphql-bff
+    path: ~/work/graphql-bff
+    role: gateway
+    gitlabProject: your-group/graphql-bff
+  - name: orders-subgraph          # Go (gqlgen), .NET (Hot Chocolate) or Node — detected automatically
+    path: ~/work/orders-subgraph
     role: downstream
-    gitlabProject: your-group/orders-api
+    gitlabProject: your-group/orders-subgraph
 
 indexing:
   enabled: true

@@ -15,7 +15,8 @@ export type McpServerSpec = z.infer<typeof McpServerSchema>;
 export const RepoSchema = z.object({
   name: z.string(),
   path: z.string(),
-  role: z.enum(["ui", "downstream"]).default("ui"),
+  /** ui = front end; gateway = GraphQL middle service the UI talks to; downstream = services/subgraphs behind it. */
+  role: z.enum(["ui", "gateway", "downstream"]).default("ui"),
   /** GitLab project path, e.g. "group/web-ui". Used to map MRs to this local repo. */
   gitlabProject: z.string().optional(),
 });

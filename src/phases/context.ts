@@ -1,9 +1,12 @@
 /** Deterministic context gathering for the plan phase: Jira → MRs → local repos → impact → context bundle on disk. */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { secretsOf } from "../config/load.ts";
 import type { Config, RepoConfig } from "../config/schema.ts";
-import { changedFilesInCommit, fetchAll, hasCommit, isAncestorOfHead, isGitRepo, logGrep } from "../repos/git.ts";
-import { computeImpact, impactToMarkdown, linkDownstream, type RepoImpact } from "../repos/impact.ts";
+import { mergeChange, parseFileDiff, parseMultiFileDiff, type RepoChanges } from "../repos/diff.ts";
+import { fetchAll, hasCommit, isAncestorOfHead, isGitRepo, logGrep, showPatch } from "../repos/git.ts";
+import { GraphqlLinker, graphqlChainsToMarkdown } from "../repos/graphql-impact.ts";
+import { computeImpact, impactToMarkdown, linkDownstream, RepoGraph, type RepoImpact } from "../repos/impact.ts";
 import { getIndex, indexSummaryMarkdown, type RepoIndex } from "../repos/indexer.ts";
 import type { GitLabClient } from "../sources/gitlab/client.ts";
 import { collectMergeRequests, mrsToMarkdown, type CollectedMR } from "../sources/gitlab/collect.ts";
@@ -41,7 +44,7 @@ export interface ContextDeps {
 
 export async function buildContext(cfg: Config, ticket: string, contextDir: string, deps: ContextDeps) {
   const { log } = deps;
-  const secrets = [cfg.jira.token, cfg.gitlab.token ?? ""].filter(Boolean);
+  const secrets = secretsOf(cfg);
   const write = (rel: string, content: string) => writeText(join(contextDir, rel), redact(content, secrets));
   const files: string[] = [];
 
@@ -77,12 +80,12 @@ export async function buildContext(cfg: Config, ticket: string, contextDir: stri
   await write("mrs.md", mrsToMarkdown(mrs));
   files.push("mrs.md");
 
-  const { repoStates, impacts, indexes } = await analyseRepos(cfg, allStories.map((s) => s.key), mrs, log);
+  const { repoStates, impacts, indexes, graphqlMd } = await analyseRepos(cfg, allStories.map((s) => s.key), mrs, log);
   for (const ix of indexes) {
     await write(`repos/${ix.repo}.md`, indexSummaryMarkdown(ix));
     files.push(`repos/${ix.repo}.md`);
   }
-  await write("impact.md", impactToMarkdown(impacts) + "\n" + repoStatesMarkdown(repoStates));
+  await write("impact.md", [impactToMarkdown(impacts), graphqlMd, repoStatesMarkdown(repoStates)].filter(Boolean).join("\n"));
   files.push("impact.md");
 
   const manifest: ContextManifest = {
@@ -110,6 +113,8 @@ async function analyseRepos(cfg: Config, keys: string[], mrs: CollectedMR[], log
   const repoStates: RepoState[] = [];
   const impacts: RepoImpact[] = [];
   const indexes: RepoIndex[] = [];
+  const graphs = new Map<string, RepoGraph>();
+  const changes = new Map<string, RepoChanges>();
 
   for (const repo of cfg.repos) {
     if (!existsSync(repo.path) || !(await isGitRepo(repo.path))) {
@@ -131,22 +136,32 @@ async function analyseRepos(cfg: Config, keys: string[], mrs: CollectedMR[], log
     for (const k of keys) state.localKeyCommits.push(...(await logGrep(repo.path, k)));
     state.localKeyCommits = [...new Map(state.localKeyCommits.map((c) => [c.sha, c])).values()];
 
-    const changed = new Set<string>(repoMrs.flatMap((m) => m.diffs.filter((d) => !d.deleted_file).map((d) => d.new_path)));
-    for (const c of state.localKeyCommits) for (const f of await changedFilesInCommit(repo.path, c.sha)) changed.add(f);
+    // Changed files with line ranges, from MR diffs and local commits that mention the ticket.
+    const repoChanges: RepoChanges = new Map();
+    for (const m of repoMrs) for (const d of m.diffs) if (!d.deleted_file) mergeChange(repoChanges, d.new_path, parseFileDiff(d.diff));
+    for (const c of state.localKeyCommits) {
+      for (const [f, ch] of parseMultiFileDiff(await showPatch(repo.path, c.sha))) mergeChange(repoChanges, f, ch);
+    }
+    changes.set(repo.name, repoChanges);
 
     if (cfg.indexing.enabled) {
       const { index, cached } = await getIndex(repo, { exclude: cfg.indexing.exclude, cacheDir: cfg.indexing.cacheDir });
       log(`Index ${repo.name}: ${cached ? "cached" : "built"} (${index.files.length} files, ${index.routes.length} routes).`);
       indexes.push(index);
+      const graph = new RepoGraph(index);
+      graphs.set(repo.name, graph);
       state.head = index.headSha;
-      if (changed.size) impacts.push(await computeImpact(index, [...changed].filter((f) => index.files.includes(f))));
+      const changed = [...repoChanges.keys()].filter((f) => index.files.includes(f));
+      if (changed.length) impacts.push(await computeImpact(index, changed, 2, graph));
     }
     const missing = state.commits.filter((c) => !c.inHead).length;
     if (missing) state.note = `${missing} MR commit(s) are not in the checked-out HEAD, so local code may not match the MR.`;
     repoStates.push(state);
   }
   linkDownstream(impacts, indexes);
-  return { repoStates, impacts, indexes };
+  const { chains, hints } = await new GraphqlLinker(indexes, graphs).build(changes);
+  if (chains.length) log(`GraphQL: traced ${chains.length} changed field/operation chain(s) across repos.`);
+  return { repoStates, impacts, indexes, graphqlMd: graphqlChainsToMarkdown(chains, hints) };
 }
 
 function repoStatesMarkdown(states: RepoState[]): string {

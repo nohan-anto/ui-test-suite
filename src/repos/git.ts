@@ -56,3 +56,8 @@ export async function lsFiles(repo: string): Promise<string[]> {
 export async function changedFilesInCommit(repo: string, sha: string): Promise<string[]> {
   return (await git(repo, ["show", "--name-only", "--format=", sha])).stdout.split("\n").filter(Boolean);
 }
+
+/** Zero-context patch of a commit, for exact changed-line ranges. */
+export async function showPatch(repo: string, sha: string): Promise<string> {
+  return (await git(repo, ["show", "-U0", "--format=", "--no-color", sha])).stdout;
+}

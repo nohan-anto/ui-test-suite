@@ -50,32 +50,65 @@ async function findImporters(cache: SourceCache, file: string): Promise<string[]
   return out;
 }
 
-export async function computeImpact(ix: RepoIndex, changedFiles: string[], depth = 2): Promise<RepoImpact> {
-  const files: FileImpact[] = [];
-  const cache = new SourceCache(ix);
-  const routesByFile = new Map<string, string[]>();
-  for (const r of ix.routes) routesByFile.set(r.file, [...(routesByFile.get(r.file) ?? []), r.path]);
+/** Import graph + route lookup for one repo, shared by REST and GraphQL impact analysis. */
+export class RepoGraph {
+  private readonly cache: SourceCache;
+  private readonly routesByFile = new Map<string, string[]>();
+  private readonly importerMemo = new Map<string, string[]>();
 
-  for (const file of uniq(changedFiles)) {
-    const importedBy = new Set<string>();
+  constructor(readonly ix: RepoIndex) {
+    this.cache = new SourceCache(ix);
+    for (const r of ix.routes) this.routesByFile.set(r.file, [...(this.routesByFile.get(r.file) ?? []), r.path]);
+  }
+
+  async text(file: string): Promise<string> {
+    return (await this.cache.all()).get(file) ?? "";
+  }
+
+  routesIn(file: string): string[] {
+    return uniq(this.routesByFile.get(file) ?? []);
+  }
+
+  async importers(file: string): Promise<string[]> {
+    if (!this.importerMemo.has(file)) this.importerMemo.set(file, await findImporters(this.cache, file));
+    return this.importerMemo.get(file)!;
+  }
+
+  /** Transitive importers up to `depth` levels. */
+  async importedBy(file: string, depth = 2): Promise<string[]> {
+    const seen = new Set<string>();
     let frontier = [file];
     for (let d = 0; d < depth && frontier.length; d++) {
       const next: string[] = [];
       for (const f of frontier.slice(0, 25)) {
-        for (const imp of await findImporters(cache, f)) {
-          if (!importedBy.has(imp)) {
-            importedBy.add(imp);
+        for (const imp of await this.importers(f)) {
+          if (!seen.has(imp)) {
+            seen.add(imp);
             next.push(imp);
           }
         }
       }
       frontier = next;
     }
+    return [...seen];
+  }
+
+  /** Routes defined in the file or in files that (transitively) import it. */
+  async routesReaching(file: string, depth = 2): Promise<string[]> {
+    const imps = await this.importedBy(file, depth);
+    return uniq([...this.routesIn(file), ...imps.flatMap((f) => this.routesIn(f))]);
+  }
+}
+
+export async function computeImpact(ix: RepoIndex, changedFiles: string[], depth = 2, graph = new RepoGraph(ix)): Promise<RepoImpact> {
+  const files: FileImpact[] = [];
+  for (const file of uniq(changedFiles)) {
+    const importedBy = await graph.importedBy(file, depth);
     files.push({
       file,
-      routesInFile: uniq(routesByFile.get(file) ?? []),
-      importedBy: [...importedBy].slice(0, 50),
-      routesViaImporters: uniq([...importedBy].flatMap((f) => routesByFile.get(f) ?? [])),
+      routesInFile: graph.routesIn(file),
+      importedBy: importedBy.slice(0, 50),
+      routesViaImporters: uniq(importedBy.flatMap((f) => graph.routesIn(f))),
       flags: uniq(ix.featureFlags.filter((x) => x.file === file).map((x) => x.name)),
       apiEndpoints: uniq(ix.apiEndpoints.filter((x) => x.file === file).map((x) => x.name)),
     });

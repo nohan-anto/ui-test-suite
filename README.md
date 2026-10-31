@@ -20,6 +20,22 @@ uitest (Bun CLI, does all deterministic work)
         └─ MCP: chrome-devtools-mcp (attached to your Chrome) [+ Atlassian Rovo] [+ extras]
 ```
 
+**GraphQL-aware impact.** Repos get one of three roles: `ui`, `gateway` (the GraphQL middle service) or `downstream` (the subgraphs behind it). For every changed resolver or schema field (line-accurate, from MR diffs and local commits), `impact.md` traces the full chain:
+
+```
+subgraph field Query.ordersByCustomer (Go resolver changed)
+  → gateway resolver Query.customerOrders (sends query OBC)
+    → UI query GetOrders (src/graphql/orders.ts) → screens /orders
+```
+
+It also works in the other direction, from a UI or gateway change to the subgraphs behind it, and it flags changed type fields (e.g. a new `Order.status`) that UI operations select. Recognised patterns:
+
+- **UI:** gql`` tags
+- **Gateway:** schema-first SDL (`.graphql` files or `typeDefs`) with resolver maps, plus the gql operations it sends to subgraphs
+- **Subgraphs:** Node schema-first, Go gqlgen (`.graphqls` + `func (r *queryResolver) X`), .NET Hot Chocolate (`[QueryType]` / `[ExtendObjectType("Query")]` / `class Query`, with `GetXAsync` read as `x`)
+
+Links are made by field name, so treat them as strong hints, not proof.
+
 **Phase 1 (plan).** The agent reads the context bundle and the repos, and can look at the live UI. It is instructed to **ask instead of assuming**. Its questions are asked in your terminal, and your answers go back to it for the next round. This repeats until it has no questions left and you accept the draft. Output: `test-cases.md`, which you can edit. `questions.md` records every Q&A.
 
 **Phase 2 (test).** A preflight finds your signed-in app tab and stops if it is on OneLogin. Each test case runs in a separate agent call. Cases tagged `destructive` ask you for confirmation first. If a step is ambiguous, the run is marked `blocked` and the agent's question goes to you. Output: `test-report.md` with a pass/fail summary, failed steps (expected vs actual), console and network errors, screenshots and an AC → test case traceability table.
