@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { Command } from "commander";
 import { AGENT_IDS, createAgent } from "./agents/registry.ts";
+import { chromeArgs, findChrome, launchChrome } from "./browser/launch.ts";
 import { preflight } from "./browser/preflight.ts";
 import { DEFAULT_CONFIG_FILE, loadConfig } from "./config/load.ts";
 import type { Config } from "./config/schema.ts";
@@ -90,6 +91,26 @@ program
     for (const r of cfg.repos) report(await isGitRepo(r.path), `repo ${r.name}: ${r.path}`);
     if (cfg.jira.rovo.enabled) p.log.info("rovo: enabled — the agent CLI will prompt for Atlassian OAuth on first use");
     process.exit(ok ? 0 : 1);
+  });
+
+program
+  .command("chrome")
+  .description("start Chrome with remote debugging on the dedicated uitest profile (Windows, macOS, Linux)")
+  .option("--print", "only print the command, do not start Chrome")
+  .action(async (o) => {
+    const cfg = await cfgFrom({}).catch(fail);
+    const bin = findChrome(cfg.browser);
+    if (o.print) {
+      console.log([bin ?? "<chrome not found>", ...chromeArgs(cfg.browser)].map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "));
+      return;
+    }
+    const l = await launchChrome(cfg.browser);
+    if (!l.ok) fail(new Error(l.message));
+    p.log.success(l.message);
+    const pf = await preflight(cfg);
+    if (pf.ok) p.log.success(`Signed-in tab ready: ${pf.tab?.url}`);
+    else p.log.info(`Sign in to ${cfg.browser.appBaseUrl} in that window (first time only), then run: uitest doctor`);
+    process.exit(0);
   });
 
 program

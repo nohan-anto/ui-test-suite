@@ -26,6 +26,7 @@ export function parseConfig(text: string, env: Record<string, string | undefined
   const raw = YAML.parse(text) ?? {};
   const cfg = ConfigSchema.parse(interpolateEnv(raw, env));
   cfg.repos = cfg.repos.map((r) => ({ ...r, path: expandHome(r.path) }));
+  cfg.browser.profileDir = expandHome(cfg.browser.profileDir);
   return cfg;
 }
 

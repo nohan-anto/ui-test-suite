@@ -5,7 +5,7 @@ import type { AgentAdapter } from "../agents/types.ts";
 import { answersForPrompt } from "../artifacts/questions.ts";
 import { renderReport, type CaseResult, type RunMeta } from "../artifacts/report.ts";
 import { parseTestCases } from "../artifacts/testcases.ts";
-import { preflight } from "../browser/preflight.ts";
+import { ensureBrowser } from "../browser/ensure.ts";
 import type { Config } from "../config/schema.ts";
 import { mcpServersFor } from "../mcp/servers.ts";
 import type { Asker } from "../qa/interactive.ts";
@@ -113,7 +113,7 @@ export async function runTests(cfg: Config, opts: TestOptions) {
   if (!cases.length) throw new Error("No test cases selected.");
 
   if (!opts.skipPreflight) {
-    const pf = await preflight(cfg);
+    const pf = await ensureBrowser(cfg, opts.asker);
     if (!pf.ok) throw new Error(`Browser preflight failed:\n  ${pf.problems.join("\n  ")}`);
     opts.asker.info(pf.tab ? `Using signed-in tab: ${pf.tab.title} (${pf.tab.url})` : `Browser mode: ${pf.mode}`);
   }

@@ -41,6 +41,10 @@ export const ConfigSchema = z.object({
     browserUrl: z.string().default("http://127.0.0.1:9222"),
     /** Use chrome-devtools-mcp --autoConnect (Chrome 144+) instead of browserUrl. */
     autoConnect: z.boolean().default(false),
+    /** Chrome binary for `uitest chrome`; null = auto-detect per OS. */
+    chromePath: z.string().nullish(),
+    /** Dedicated Chrome profile used by `uitest chrome` (keeps the SSO session between runs). */
+    profileDir: z.string().default("~/.uitest-chrome"),
     appBaseUrl: z.string(),
     tabMatch: z.string().optional(),
     loggedInCheck: z

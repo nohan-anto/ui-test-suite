@@ -62,21 +62,27 @@ runs/CIS-601/<plan-run>/
    - GitLab: a personal access token with `read_api` and `read_repository` scopes
    - `repos`: local clones of your UI repo and downstream repos, each with its `gitlabProject` path
 4. **Connect Chrome.** Use one of these:
-   - **Dedicated debug profile (any Chrome version).** Chrome 136+ ignores `--remote-debugging-port` on your default profile, so start a separate one:
+   - **Dedicated debug profile (any Chrome version).** Chrome 136+ ignores `--remote-debugging-port` on your default profile, so uitest uses a separate profile. Start it with:
      ```
-     google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.uitest-chrome"
+     uitest chrome
      ```
-     Sign in through OneLogin once in that window and keep the app tab open. The session persists in that profile.
+     This finds Chrome for your OS, starts it on the port in `browser.browserUrl` with the profile in `browser.profileDir` (default `~/.uitest-chrome`), and opens `appBaseUrl`. Sign in through OneLogin once in that window and keep the app tab open. The session persists in that profile. `uitest test` also offers to start Chrome when it isn't running. To start it by hand instead (`uitest chrome --print` prints the exact command):
+
+     | OS | Command |
+     | --- | --- |
+     | Windows (PowerShell) | `& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:USERPROFILE\.uitest-chrome"` |
+     | Windows (cmd) | `"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%USERPROFILE%\.uitest-chrome"` |
+     | macOS | `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=9222 --user-data-dir="$HOME/.uitest-chrome"` |
+     | Linux | `google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/.uitest-chrome"` |
+
+     In PowerShell the `&` is required: without it, a quoted path is a string and the arguments cause *Unexpected token*. If Chrome is installed per user on Windows, it is in `$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe` (`uitest chrome` checks there too). Check it worked by opening `http://127.0.0.1:9222/json/version`.
    - **Auto-connect (Chrome 144+).** Enable remote debugging at `chrome://inspect/#remote-debugging` in your normal Chrome and set `browser.autoConnect: true`.
 5. Run `uitest doctor`.
 
 ### Windows notes
 
 - **Bun version:** `bun.lock` needs Bun ≥ 1.2. If `bun install` says *unknown lockfile version*, run `bun upgrade` (or reinstall: `powershell -c "irm bun.sh/install.ps1 | iex"`). If you can't upgrade, delete `bun.lock` and run `bun install` to regenerate it.
-- **Chrome debug profile** (PowerShell):
-  ```powershell
-  & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:USERPROFILE\.uitest-chrome"
-  ```
+- **Chrome debug profile:** run `uitest chrome`. To do it by hand, see the table in Setup step 4. PowerShell needs `&` before the quoted chrome.exe path. If Chrome isn't in a standard location, set `browser.chromePath`.
 - **Repo paths in YAML:** use forward slashes or single quotes. In double quotes, backslashes are escape characters:
   ```yaml
   path: C:/work/web-ui          # ok
@@ -91,6 +97,7 @@ runs/CIS-601/<plan-run>/
 | Command | What it does |
 | --- | --- |
 | `uitest init` | Create `uitest.config.yaml` and `.env` from the examples |
+| `uitest chrome [--print]` | Start Chrome with remote debugging on the uitest profile (Windows, macOS, Linux), or print the command |
 | `uitest doctor [--agent id]` | Check every integration |
 | `uitest index [repo] [--force]` | Build or refresh the repo indexes (cached per HEAD sha) |
 | `uitest plan <TICKET> [--agent id] [--answers f.json] [--fixtures dir]` | Phase 1 |

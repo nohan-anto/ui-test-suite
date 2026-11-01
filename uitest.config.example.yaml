@@ -12,12 +12,14 @@ browser:
   mcp: chrome-devtools       # preset, or a custom server: { name, command, args, env }
   browserUrl: http://127.0.0.1:9222
   autoConnect: false         # true = chrome-devtools-mcp --autoConnect (Chrome 144+, enable at chrome://inspect/#remote-debugging)
+  chromePath: null           # Chrome binary for `uitest chrome`; null = auto-detect for Windows/macOS/Linux
+  profileDir: ~/.uitest-chrome  # dedicated debug profile (Chrome 136+ ignores the port on the default profile)
   appBaseUrl: https://app.example.com
-  tabMatch: app.example.com  # the open, signed-in tab to use
+  # tabMatch: app.example.com  # the open, signed-in tab to use (default: host of appBaseUrl)
   loggedInCheck:
     notUrlContains: [onelogin.com]   # tab URL containing these means "not signed in"
     selector: null                   # optional CSS selector that only exists when signed in
-  allowedOrigins: [https://app.example.com]
+  # allowedOrigins: [https://app.example.com]   # default: origin of appBaseUrl
   planObserveOnly: false     # true = remove click/type tools during planning
   enforceAllowedOrigins: false  # true = hard-block other origins in the browser (Chrome 149+; also blocks 3rd-party CDNs)
 

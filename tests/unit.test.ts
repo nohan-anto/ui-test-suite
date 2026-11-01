@@ -7,6 +7,7 @@ import { extractJson, parseAgentJson } from "../src/agents/json-extract.ts";
 import type { AgentRequest } from "../src/agents/types.ts";
 import { renderReport, summarise, type CaseResult } from "../src/artifacts/report.ts";
 import { parseTestCases, renderTestCases } from "../src/artifacts/testcases.ts";
+import { chromeArgs, chromeCandidates } from "../src/browser/launch.ts";
 import { pickTab, signInProblem } from "../src/browser/preflight.ts";
 import { interpolateEnv, parseConfig } from "../src/config/load.ts";
 import { toCodexOverrides, toMcpJson } from "../src/mcp/servers.ts";
@@ -217,5 +218,24 @@ describe("browser preflight helpers", () => {
     expect(pickTab(tabs, cfg)?.id).toBe("3");
     expect(signInProblem({ id: "4", type: "page", title: "", url: "https://acme.onelogin.com/login" }, cfg)).toContain("Sign in");
     expect(signInProblem(tabs[2]!, cfg)).toBeNull();
+  });
+});
+
+describe("chrome launch", () => {
+  test("finds Chrome per OS", () => {
+    const win = chromeCandidates("win32", { PROGRAMFILES: "C:\\Program Files", LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" });
+    expect(win).toHaveLength(2);
+    expect(win.every((c) => c.endsWith("chrome.exe"))).toBe(true);
+    expect(chromeCandidates("darwin")[0]).toContain("Google Chrome.app");
+    expect(chromeCandidates("linux")).toContain("google-chrome");
+  });
+
+  test("uses the configured port, expanded profile dir and app URL", () => {
+    const cfg = parseConfig(minimalConfig.replace("browser: {", "browser: { browserUrl: \"http://127.0.0.1:9333\","), { T: "x" }).browser;
+    const args = chromeArgs(cfg);
+    expect(args[0]).toBe("--remote-debugging-port=9333");
+    expect(args[1]).toMatch(/^--user-data-dir=.*\.uitest-chrome$/);
+    expect(args[1]).not.toContain("~");
+    expect(args.at(-1)).toBe(cfg.appBaseUrl);
   });
 });
