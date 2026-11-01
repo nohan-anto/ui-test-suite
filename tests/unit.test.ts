@@ -239,3 +239,13 @@ describe("chrome launch", () => {
     expect(args.at(-1)).toBe(cfg.appBaseUrl);
   });
 });
+
+describe("docs", () => {
+  test("docs/PROJECT.md header version matches package.json", async () => {
+    const root = join(import.meta.dir, "..");
+    const pkg = await Bun.file(join(root, "package.json")).json();
+    const doc = await Bun.file(join(root, "docs", "PROJECT.md")).text();
+    const header = doc.match(/\| App version \|[^\n]*\n\|[^\n]*\n\| ([^|]+?) \|/);
+    expect(header?.[1]).toBe(pkg.version);
+  });
+});

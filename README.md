@@ -135,3 +135,5 @@ Every agent must end its reply with a JSON block matching `src/phases/protocol.t
 bun test             # unit tests and an offline end-to-end run (mock agent + fixtures)
 bunx tsc --noEmit    # typecheck
 ```
+
+For coding agents working on this repo: [`docs/PROJECT.md`](docs/PROJECT.md) is the shared guide (architecture, file index, invariants, status). `CLAUDE.md`, `AGENTS.md` (Codex) and `.github/copilot-instructions.md` all point to it.
