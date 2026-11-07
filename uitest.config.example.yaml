@@ -33,6 +33,12 @@ jira:
   rovo:
     enabled: false                   # give the agent the Atlassian Remote MCP (Rovo search, Confluence)
     url: https://mcp.atlassian.com/v1/sse
+  publish:                           # `uitest publish`: post the report as a comment on the story (the only Jira write)
+    enabled: false
+    email: null                      # null = jira.email
+    token: null                      # null = jira.token; e.g. ${JIRA_WRITE_TOKEN} if your main token is read-only
+    attach: all                      # screenshots to attach: all | failures | none
+    attachReport: true               # also attach the full test-report.md
 
 gitlab:
   baseUrl: https://gitlab.com
@@ -40,7 +46,7 @@ gitlab:
   searchByKey: true                  # also find MRs whose title/description/branch mention the ticket
   maxDiffBytes: 200000
 
-# role: ui → the front end | gateway → GraphQL middle service the UI calls | downstream → subgraphs/services behind it
+# role: ui → the front end | gateway → the middle service the UI calls (GraphQL or REST BFF) | downstream → services behind it (GraphQL subgraphs or REST APIs, any mix)
 # Windows paths: use forward slashes (C:/work/web-ui) or single quotes.
 repos:
   - name: web-ui

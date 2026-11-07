@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { parseConfig } from "../src/config/load.ts";
 import { buildContext } from "../src/phases/context.ts";
 import { parseFileDiff, parseMultiFileDiff, sdlFieldNamesInLines, touchedItems } from "../src/repos/diff.ts";
 import { csResolverFields, goResolverFields, hotChocolateFieldName, jsResolverFields, parseGraphql, scanGraphql } from "../src/repos/graphql.ts";
 import { fixtureFetch } from "../src/sources/fixtures.ts";
 import { JiraClient } from "../src/sources/jira/client.ts";
-import { exec } from "../src/util/index.ts";
+import { makeGitRepo, type RepoChange } from "./helpers.ts";
 
 describe("GraphQL parsing", () => {
   test("operations: aliases, args with objects, directives, fragments, inline fragments", () => {
@@ -73,28 +73,7 @@ describe("diff helpers", () => {
 // ---------------------------------------------------------------- three-repo chain
 
 let work: string;
-async function makeRepo(name: string, files: Record<string, string>, change?: { files: Record<string, string>; message: string }) {
-  const repo = join(work, name);
-  const iso = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath=", "-c", "core.autocrlf=false", "-c", "user.email=t@t", "-c", "user.name=t"];
-  const write = async (fs: Record<string, string>) => {
-    for (const [p, c] of Object.entries(fs)) {
-      mkdirSync(dirname(join(repo, p)), { recursive: true });
-      await Bun.write(join(repo, p), c);
-    }
-  };
-  const git = (...a: string[]) => exec(["git", "-C", repo, ...iso, ...a], { timeoutMs: 30_000 });
-  mkdirSync(repo, { recursive: true });
-  await git("init", "-q");
-  await write(files);
-  await git("add", ".");
-  await git("commit", "-q", "--no-verify", "-m", "initial");
-  if (change) {
-    await write(change.files);
-    await git("add", ".");
-    await git("commit", "-q", "--no-verify", "-m", change.message);
-  }
-  return repo;
-}
+const makeRepo = (name: string, files: Record<string, string>, change?: RepoChange) => makeGitRepo(work, name, files, change);
 
 beforeAll(() => {
   work = mkdtempSync(join(tmpdir(), "uitest-gql-"));

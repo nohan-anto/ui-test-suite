@@ -5,6 +5,8 @@ export interface CaseResult {
   reply: TestReply;
   durationMs: number;
   error?: string;
+  /** Set when this result was carried over from an earlier test run (not re-run this time). */
+  fromTestRun?: string;
 }
 
 export interface RunMeta {
@@ -28,8 +30,18 @@ export function summarise(results: CaseResult[]) {
   return counts;
 }
 
-export function renderReport(meta: RunMeta, results: CaseResult[], evidenceBase = "evidence"): string {
+/**
+ * `evidenceBase`: evidence dir of this test run, relative to the report.
+ * `evidenceFor`: evidence dir of an earlier test run (for carried-over results), relative to the report.
+ */
+export function renderReport(
+  meta: RunMeta,
+  results: CaseResult[],
+  evidenceBase = "evidence",
+  evidenceFor: (testRunId: string) => string = (id) => `../${id}/evidence`,
+): string {
   const c = summarise(results);
+  const carried = results.filter((r) => r.fromTestRun);
   const verdict = c.fail || c.blocked ? "FAILED" : results.length ? "PASSED" : "NO TESTS RUN";
   const out = [
     `# Test report: ${meta.ticket} — ${meta.title}`,
@@ -43,6 +55,11 @@ export function renderReport(meta: RunMeta, results: CaseResult[], evidenceBase 
     `- **Started:** ${meta.startedAt}`,
     `- **Finished:** ${meta.finishedAt}`,
   ];
+  if (carried.length) {
+    out.push(
+      `- **Re-run:** ${results.length - carried.length} case(s) ran in this test run; ${carried.length} result(s) carried over from earlier runs (marked ↩).`,
+    );
+  }
   if (meta.mergeRequests.length)
     out.push(`- **Merge requests:** ${meta.mergeRequests.map((m) => `${m.ref} [${m.state}]${m.sha ? ` @${m.sha.slice(0, 8)}` : ""}`).join(", ")}`);
   for (const r of meta.repos) out.push(`- **Repo ${r.name}:** HEAD ${r.head.slice(0, 8)}${r.note ? ` — ${r.note}` : ""}`);
@@ -50,7 +67,7 @@ export function renderReport(meta: RunMeta, results: CaseResult[], evidenceBase 
   out.push("", "## Summary", "", "| ID | Title | Priority | Status | Duration |", "| --- | --- | --- | --- | --- |");
   for (const r of results) {
     out.push(
-      `| ${r.testCase.id} | ${esc(r.testCase.title)} | ${r.testCase.priority} | ${ICON[r.reply.status]} ${r.reply.status} | ${(r.durationMs / 1000).toFixed(0)}s |`,
+      `| ${r.testCase.id} | ${esc(r.testCase.title)} | ${r.testCase.priority} | ${ICON[r.reply.status]} ${r.reply.status}${r.fromTestRun ? ` ↩ ${r.fromTestRun}` : ""} | ${(r.durationMs / 1000).toFixed(0)}s |`,
     );
   }
 
@@ -81,8 +98,10 @@ export function renderReport(meta: RunMeta, results: CaseResult[], evidenceBase 
       for (const s of r.reply.steps) out.push(`| ${s.n} | ${esc(r.testCase.steps[s.n - 1] ?? "")} | ${esc(s.actual)} | ${s.ok ? "✅" : "❌"} |`);
       out.push("");
     }
+    if (r.fromTestRun) out.push(`_Carried over from test run ${r.fromTestRun}; not re-run._`, "");
     if (r.reply.evidence.length) {
-      out.push("**Evidence**", "", ...r.reply.evidence.map((e) => (/\.(png|jpe?g|webp)$/i.test(e) ? `![${e}](${evidenceBase}/${e})` : `- ${e}`)), "");
+      const base = r.fromTestRun ? evidenceFor(r.fromTestRun) : evidenceBase;
+      out.push("**Evidence**", "", ...r.reply.evidence.map((e) => (/\.(png|jpe?g|webp)$/i.test(e) ? `![${e}](${base}/${e})` : `- ${e}`)), "");
     }
   }
 

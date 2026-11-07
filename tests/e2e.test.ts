@@ -6,6 +6,7 @@ import { MockAdapter } from "../src/agents/mock.ts";
 import { parseConfig } from "../src/config/load.ts";
 import type { Config } from "../src/config/schema.ts";
 import { runPlan } from "../src/phases/plan.ts";
+import { runPublish } from "../src/phases/publish.ts";
 import { regenerateReport, runTests } from "../src/phases/test.ts";
 import { ScriptedAsker } from "../src/qa/interactive.ts";
 import { fixtureFetch } from "../src/sources/fixtures.ts";
@@ -93,9 +94,62 @@ test("plan → test → report, fully offline", async () => {
   expect(report).toContain("No validation message appeared");
   expect(report).toContain("| AC-2 | TC-002 | ❌ fail |");
 
-  // --only and report regeneration
+  // --only: runs one case, the report still covers every case (the other carried over from t1)
   const only = await runTests(cfg, { ticket: "DEMO-1", runId: "r1", testRunId: "t2", agent, asker, only: ["TC-001"], skipPreflight: true });
   expect(only.results).toHaveLength(1);
+  expect(only.all.map((r) => [r.testCase.id, r.reply.status, r.fromTestRun])).toEqual([
+    ["TC-001", "pass", undefined],
+    ["TC-002", "fail", "t1"],
+  ]);
   expect(await regenerateReport(cfg, "DEMO-1", "r1", "t2")).toBe(run.paths.latestReport);
-  expect(await Bun.file(run.paths.latestReport).text()).toContain("**Result: PASSED**");
+  const merged = await Bun.file(run.paths.latestReport).text();
+  expect(merged).toContain("**Result: FAILED** · 1 passed · 1 failed");
+  expect(merged).toContain("❌ fail ↩ t1");
+
+  // --failed: re-runs only TC-002 (still failing)
+  const calls = agent.calls.length;
+  const again = await runTests(cfg, { ticket: "DEMO-1", runId: "r1", testRunId: "t3", agent, asker, failed: true, skipPreflight: true });
+  expect(again.results.map((r) => r.testCase.id)).toEqual(["TC-002"]);
+  expect(agent.calls.length - calls).toBe(1);
+  expect(again.all.find((r) => r.testCase.id === "TC-001")?.fromTestRun).toBe("t2");
+
+  // after a fix (simulated by editing test-cases.md), --failed turns the report green
+  const tcFile = run.paths.testCases;
+  await Bun.write(tcFile, (await Bun.file(tcFile).text()).replaceAll(" [mock-fail]", ""));
+  const fixed = await runTests(cfg, { ticket: "DEMO-1", runId: "r1", testRunId: "t4", agent, asker, failed: true, skipPreflight: true });
+  expect(fixed.results.map((r) => [r.testCase.id, r.reply.status])).toEqual([["TC-002", "pass"]]);
+  expect(await Bun.file(run.paths.latestReport).text()).toContain("**Result: PASSED** · 2 passed");
+  await expect(runTests(cfg, { ticket: "DEMO-1", runId: "r1", testRunId: "t5", agent, asker, failed: true, skipPreflight: true })).rejects.toThrow(
+    "Nothing to re-run",
+  );
+
+  // publish: comment + screenshots on the story (fake Jira records the requests)
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  await Bun.write(join(run.paths.runDir, "test-runs", "t2", "evidence", "TC-001-step1.png"), png); // TC-001's result is carried from t2
+  await Bun.write(join(run.paths.runDir, "test-runs", "t4", "evidence", "TC-002-step2.png"), png);
+  const requests: { method: string; url: string; body?: unknown }[] = [];
+  const fakeJira = async (url: string, init?: RequestInit) => {
+    requests.push({ method: init?.method ?? "GET", url, body: init?.body });
+    if (url.includes("fields=attachment")) return Response.json({ fields: { attachment: [{ filename: "uitest-t2-TC-001-step1.png" }] } });
+    if (url.endsWith("/comment")) return Response.json({ id: "10001" });
+    return Response.json([{ id: "1" }]);
+  };
+  const pubOpts = { ticket: "DEMO-1", runId: "r1", testRunId: "t4", asker, fetchFn: fakeJira };
+  await expect(runPublish(cfg, pubOpts)).rejects.toThrow("Publishing is off");
+
+  const dry = await runPublish(cfg, { ...pubOpts, dryRun: true });
+  expect(requests).toHaveLength(0);
+  expect(dry.images.map((i) => i.name).sort()).toEqual(["uitest-t2-TC-001-step1.png", "uitest-t4-TC-002-step2.png"]);
+  expect(dry.body).toContain("(/) *PASSED*");
+  expect(dry.body).toContain("|TC-001|Happy path renders the new screen|P1|(/) pass (from t2)|");
+  expect(dry.body).toContain("!uitest-t4-TC-002-step2.png|thumbnail!");
+
+  cfg.jira.publish.enabled = true;
+  const posted = await runPublish(cfg, pubOpts);
+  expect(posted.posted && posted.commentId).toBe("10001");
+  // the t2 screenshot was already on the issue: only the new screenshot and the report are uploaded
+  expect(requests.filter((r) => r.url.endsWith("/attachments"))).toHaveLength(2);
+  const comment = requests.find((r) => r.url.endsWith("/rest/api/2/issue/DEMO-1/comment"))!;
+  expect(JSON.parse(String(comment.body)).body).toContain("!uitest-t2-TC-001-step1.png|thumbnail!");
+  expect(await Bun.file(join(run.paths.runDir, "test-runs", "t4", "published.json")).text()).toContain("10001");
 }, 120_000);

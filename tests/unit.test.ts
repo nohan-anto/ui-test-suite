@@ -5,6 +5,7 @@ import { CodexAdapter } from "../src/agents/codex.ts";
 import { CopilotAdapter } from "../src/agents/copilot.ts";
 import { extractJson, parseAgentJson } from "../src/agents/json-extract.ts";
 import type { AgentRequest } from "../src/agents/types.ts";
+import { buildJiraComment, MAX_COMMENT_CHARS, wikiEscape } from "../src/artifacts/jira-comment.ts";
 import { renderReport, summarise, type CaseResult } from "../src/artifacts/report.ts";
 import { parseTestCases, renderTestCases } from "../src/artifacts/testcases.ts";
 import { chromeArgs, chromeCandidates } from "../src/browser/launch.ts";
@@ -247,5 +248,30 @@ describe("docs", () => {
     const doc = await Bun.file(join(root, "docs", "PROJECT.md")).text();
     const header = doc.match(/\| App version \|[^\n]*\n\|[^\n]*\n\| ([^|]+?) \|/);
     expect(header?.[1]).toBe(pkg.version);
+  });
+});
+
+describe("jira comment", () => {
+  const meta = { ticket: "X-1", title: "T", environment: "https://app", agent: "mock", startedAt: "s", finishedAt: "f", mergeRequests: [], repos: [] };
+  const tc = (id: string, title: string): TestCase => ({ id, title, priority: "P2", tracesTo: [], tags: [], preconditions: [], testData: [], steps: ["Click Save"], expected: ["Saved"] });
+
+  test("escapes wiki markup in user text", () => {
+    expect(wikiEscape("a|b [link] {code} !img! *bold*")).toBe("a\\|b \\[link\\] \\{code\\} \\!img\\! \\*bold\\*");
+  });
+
+  test("shows failures with failed steps and stays under Jira's limit", () => {
+    const fail = (i: number): CaseResult => ({
+      testCase: tc(`TC-${String(i).padStart(3, "0")}`, `Case ${i}`),
+      reply: { id: "x", status: "fail", steps: [{ n: 1, actual: "x".repeat(2000), ok: false }], notes: "", consoleErrors: [], failedRequests: [], evidence: [], questions: [] },
+      durationMs: 0,
+    });
+    const small = buildJiraComment(meta, [fail(1)], { testRunId: "t1", images: [{ caseId: "TC-001", name: "uitest-t1-TC-001.png" }] });
+    expect(small).toContain("(x) *FAILED*");
+    expect(small).toContain("||Step||Action||Actual||");
+    expect(small).toContain("!uitest-t1-TC-001.png|thumbnail!");
+    const big = buildJiraComment(meta, Array.from({ length: 40 }, (_, i) => fail(i + 1)), { testRunId: "t1", images: [], reportName: "r.md" });
+    expect(big.length).toBeLessThanOrEqual(MAX_COMMENT_CHARS);
+    expect(big).toContain("|TC-040|");
+    expect(big).toContain("left out to fit");
   });
 });

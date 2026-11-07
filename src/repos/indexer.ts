@@ -7,6 +7,7 @@ import { extname, join } from "node:path";
 import type { RepoConfig } from "../config/schema.ts";
 import { scanGraphql, type GqlField, type GqlOperation } from "./graphql.ts";
 import { headSha, lsFiles } from "./git.ts";
+import { routeLabel, scanHttp, type HttpCall, type HttpRoute } from "./rest.ts";
 
 export interface RouteEntry {
   path: string;
@@ -20,7 +21,7 @@ export interface SymbolEntry {
 }
 
 /** Bump when the index shape or extraction changes, so cached indexes are rebuilt. */
-export const INDEX_VERSION = 2;
+export const INDEX_VERSION = 3;
 
 export interface RepoIndex {
   version: number;
@@ -39,6 +40,10 @@ export interface RepoIndex {
   gqlOperations: GqlOperation[];
   /** GraphQL root fields declared in SDL or implemented by resolvers. */
   gqlFields: GqlField[];
+  /** REST endpoints this repo serves (controllers, routers, handlers). */
+  httpRoutes: HttpRoute[];
+  /** HTTP requests this repo makes to other services (or its own backend). */
+  httpCalls: HttpCall[];
 }
 
 const SOURCE_EXT = new Set([
@@ -120,6 +125,8 @@ export async function buildIndex(repo: RepoConfig, exclude: string[]): Promise<R
     i18nFiles: [],
     gqlOperations: [],
     gqlFields: [],
+    httpRoutes: [],
+    httpCalls: [],
   };
   for (const f of files) {
     const ext = extname(f);
@@ -139,6 +146,11 @@ export async function buildIndex(repo: RepoConfig, exclude: string[]): Promise<R
     const g = scanGraphql(f, text);
     index.gqlOperations.push(...g.operations);
     index.gqlFields.push(...g.fields);
+    if (!/\.(graphql|graphqls|gql)$/.test(f)) {
+      const h = scanHttp(f, text);
+      index.httpRoutes.push(...h.routes);
+      index.httpCalls.push(...h.calls);
+    }
     index.routes.push(...s.routes);
     index.apiEndpoints.push(...s.apiEndpoints);
     index.featureFlags.push(...s.featureFlags);
@@ -168,7 +180,7 @@ export function indexSummaryMarkdown(ix: RepoIndex, maxItems = 200): string {
     "",
     `- **Path:** ${ix.root}`,
     `- **HEAD:** ${ix.headSha}`,
-    `- **Files:** ${ix.files.length} · **Routes:** ${routes.length} · **Components:** ${ix.components.length} · **API endpoints:** ${apis.length} · **Flags:** ${flags.length} · **GraphQL operations:** ${ix.gqlOperations.length} · **GraphQL root fields:** ${new Set(ix.gqlFields.map((f) => `${f.kind}.${f.field}`)).size}`,
+    `- **Files:** ${ix.files.length} · **Routes:** ${routes.length} · **Components:** ${ix.components.length} · **API endpoints:** ${apis.length} · **Flags:** ${flags.length} · **GraphQL operations:** ${ix.gqlOperations.length} · **GraphQL root fields:** ${new Set(ix.gqlFields.map((f) => `${f.kind}.${f.field}`)).size} · **REST routes:** ${ix.httpRoutes.length} · **HTTP calls:** ${ix.httpCalls.length}`,
     "",
     "## Routes",
     "",
@@ -187,6 +199,14 @@ export function indexSummaryMarkdown(ix: RepoIndex, maxItems = 200): string {
     "## GraphQL operations",
     "",
     ...ix.gqlOperations.slice(0, maxItems).map((o) => `- ${o.kind.toLowerCase()} \`${o.name}\` → ${o.rootFields.join(", ")} — ${o.file}:${o.line}`),
+    "",
+    "## REST routes served",
+    "",
+    ...ix.httpRoutes.slice(0, maxItems).map((r) => `- \`${routeLabel(r)}\` — ${r.file}:${r.line}`),
+    "",
+    "## HTTP calls made",
+    "",
+    ...ix.httpCalls.slice(0, maxItems).map((c) => `- \`${routeLabel(c)}\` — ${c.file}:${c.line}`),
     "",
     "## API endpoints referenced",
     "",

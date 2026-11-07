@@ -16,6 +16,7 @@ import { GitLabClient } from "./sources/gitlab/client.ts";
 import { JiraClient } from "./sources/jira/client.ts";
 import { latestRunId, latestTestRunId, runPaths } from "./phases/paths.ts";
 import { runPlan } from "./phases/plan.ts";
+import { runPublish } from "./phases/publish.ts";
 import { regenerateReport, runTests } from "./phases/test.ts";
 import { timestamp } from "./util/index.ts";
 
@@ -85,6 +86,10 @@ program
 
     const { jira, gitlab } = clients(cfg);
     await jira.myself().then((m) => report(true, `jira: signed in as ${m.displayName}`), (e) => report(false, `jira: ${e.message}`));
+    if (cfg.jira.publish.enabled && cfg.jira.publish.token) {
+      const pj = new JiraClient(cfg.jira.baseUrl, cfg.jira.publish.email || cfg.jira.email, cfg.jira.publish.token);
+      await pj.myself().then((m) => report(true, `jira publish token: signed in as ${m.displayName}`), (e) => report(false, `jira publish token: ${e.message}`));
+    } else if (cfg.jira.publish.enabled) p.log.info("jira publish: enabled, using the main Jira token (it needs permission to add comments and attachments)");
     if (gitlab) await gitlab.user().then((u) => report(true, `gitlab: signed in as ${u.username}`), (e) => report(false, `gitlab: ${e.message}`));
     else p.log.warn("gitlab: no token configured, MR lookup disabled");
 
@@ -123,7 +128,11 @@ program
     if (!repos.length) fail(new Error(name ? `No repo named ${name}` : "No repos configured"));
     for (const r of repos) {
       const { index, cached } = await getIndex(r, { exclude: cfg.indexing.exclude, cacheDir: cfg.indexing.cacheDir, force: o.force });
-      p.log.success(`${r.name}: ${cached ? "up to date" : "indexed"} — ${index.files.length} files, ${index.routes.length} routes, ${index.components.length} components`);
+      const fields = new Set(index.gqlFields.map((f) => `${f.kind}.${f.field}`)).size;
+      p.log.success(
+        `${r.name} (${r.role}): ${cached ? "up to date" : "indexed"} — ${index.files.length} files, ${index.routes.length} routes, ${index.components.length} components, ` +
+          `GraphQL ${index.gqlOperations.length} operations / ${fields} root fields, REST ${index.httpRoutes.length} routes / ${index.httpCalls.length} calls`,
+      );
     }
   });
 
@@ -158,6 +167,7 @@ program
   .option("--agent <id>", `override agent (${AGENT_IDS.join("|")})`)
   .option("--run <id>", "plan run id (default: latest)")
   .option("--only <ids>", "comma-separated test case ids, e.g. TC-001,TC-003")
+  .option("--failed", "re-run only the cases that failed or were blocked in the latest test run")
   .option("--answers <file>", "answer questions from a JSON file instead of the terminal")
   .option("--skip-preflight", "do not check Chrome before running (e.g. with the mock agent)")
   .action(async (ticket: string, o) => {
@@ -167,17 +177,20 @@ program
     if (!runId) fail(new Error(`No plan found for ${ticket}. Run "uitest plan ${ticket}" first.`));
     p.intro(`uitest test ${ticket} (plan ${runId}) — agent: ${cfg.agent.provider}`);
     try {
-      const { paths, results } = await runTests(cfg, {
+      const { paths, results, all } = await runTests(cfg, {
         ticket,
         runId,
         testRunId: timestamp(),
         agent: createAgent(cfg.agent.provider, cfg.agent.bin),
         asker: await askerFrom(o.answers),
         only: o.only?.split(",").map((s: string) => s.trim().toUpperCase()),
+        failed: o.failed,
         skipPreflight: o.skipPreflight,
       });
-      const failed = results.filter((r) => r.reply.status === "fail" || r.reply.status === "blocked").length;
-      p.outro(`${results.length - failed}/${results.length} passed or skipped → ${paths.latestReport}`);
+      const bad = (rs: typeof results) => rs.filter((r) => r.reply.status === "fail" || r.reply.status === "blocked").length;
+      const failed = bad(all);
+      if (all.length !== results.length) p.log.info(`This run: ${results.length - bad(results)}/${results.length} passed or skipped.`);
+      p.outro(`${all.length - failed}/${all.length} passed or skipped → ${paths.latestReport}`);
       process.exit(failed ? 2 : 0);
     } catch (e) {
       fail(e);
@@ -196,6 +209,32 @@ program
     const testRunId = latestTestRunId(runPaths(cfg, ticket, runId));
     if (!testRunId) fail(new Error(`No test runs under plan ${runId}`));
     p.log.success(`wrote ${await regenerateReport(cfg, ticket, runId, testRunId).catch(fail)}`);
+  });
+
+program
+  .command("publish <ticket>")
+  .description("post the latest test report to the Jira story as a comment, with screenshots attached")
+  .option("--run <id>", "plan run id (default: latest)")
+  .option("--test-run <id>", "test run id (default: latest)")
+  .option("--to <key>", "comment on another issue instead, e.g. a child story")
+  .option("--dry-run", "build the comment and list attachments without posting")
+  .option("-y, --yes", "post without asking for confirmation")
+  .action(async (ticket: string, o) => {
+    const cfg = await cfgFrom({}).catch(fail);
+    ticket = ticket.toUpperCase();
+    const runId = o.run ?? latestRunId(cfg, ticket);
+    if (!runId) fail(new Error(`No runs for ${ticket}`));
+    const testRunId = o.testRun ?? latestTestRunId(runPaths(cfg, ticket, runId));
+    if (!testRunId) fail(new Error(`No test runs under plan ${runId}. Run "uitest test ${ticket}" first.`));
+    const terminal = new TerminalAsker();
+    const asker: Asker = o.yes ? { ask: (q) => terminal.ask(q), confirm: async () => true, info: (m) => terminal.info(m) } : terminal;
+    try {
+      const r = await runPublish(cfg, { ticket, runId, testRunId, to: o.to, dryRun: o.dryRun, asker });
+      if (r.posted) p.log.success(`Posted to ${cfg.jira.baseUrl.replace(/\/+$/, "")}/browse/${r.issue}?focusedCommentId=${r.commentId} (${r.uploaded} new attachment(s))`);
+      else p.log.info(o.dryRun ? "Dry run, nothing posted." : "Not posted.");
+    } catch (e) {
+      fail(e);
+    }
   });
 
 await program.parseAsync();

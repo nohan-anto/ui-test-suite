@@ -1,5 +1,5 @@
 /** Phase 2: run each approved test case in the signed-in Chrome tab, then write test-report.md. */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentAdapter } from "../agents/types.ts";
 import { answersForPrompt } from "../artifacts/questions.ts";
@@ -22,7 +22,48 @@ export interface TestOptions {
   agent: AgentAdapter;
   asker: Asker;
   only?: string[];
+  /** Re-run only the cases that failed or were blocked in the latest completed test run. */
+  failed?: boolean;
   skipPreflight?: boolean;
+}
+
+export interface SavedTestRun {
+  testRunId: string;
+  meta: RunMeta;
+  results: CaseResult[];
+}
+
+const isFailure = (r: CaseResult) => r.reply.status === "fail" || r.reply.status === "blocked";
+
+/** Most recent finished test run of a plan run (unfinished runs save a bare array and are skipped). */
+export async function latestCompletedTestRun(paths: RunPaths, excludeId?: string): Promise<SavedTestRun | null> {
+  const dir = join(paths.runDir, "test-runs");
+  if (!existsSync(dir)) return null;
+  for (const id of readdirSync(dir).sort().reverse()) {
+    if (id === excludeId) continue;
+    const f = Bun.file(join(dir, id, "results.json"));
+    if (!(await f.exists())) continue;
+    const saved = (await f.json().catch(() => null)) as { meta: RunMeta; results: CaseResult[] } | null;
+    if (saved && !Array.isArray(saved) && saved.meta) return { testRunId: id, ...saved };
+  }
+  return null;
+}
+
+/**
+ * Full picture after a partial run: every planned case, using this run's result where it ran,
+ * otherwise the previous run's result (marked with the test run it came from).
+ */
+export function mergeResults(planned: TestCase[], ran: CaseResult[], previous: SavedTestRun | null): CaseResult[] {
+  const now = new Map(ran.map((r) => [r.testCase.id, r]));
+  const before = new Map((previous?.results ?? []).map((r) => [r.testCase.id, r]));
+  const out: CaseResult[] = [];
+  for (const tc of planned) {
+    const r = now.get(tc.id);
+    const p = before.get(tc.id);
+    if (r) out.push(r);
+    else if (p) out.push({ ...p, fromTestRun: p.fromTestRun ?? previous!.testRunId });
+  }
+  return out;
 }
 
 export function buildTestPrompt(cfg: Config, paths: RunPaths, tc: TestCase, qas: QA[]): string {
@@ -109,7 +150,15 @@ export async function runTests(cfg: Config, opts: TestOptions) {
   const paths = runPaths(cfg, opts.ticket, opts.runId, opts.testRunId);
   if (!existsSync(paths.testCases)) throw new Error(`No test cases at ${paths.testCases}. Run "uitest plan ${opts.ticket}" first.`);
   const doc = parseTestCases(await Bun.file(paths.testCases).text());
-  const cases = opts.only?.length ? doc.cases.filter((c) => opts.only!.includes(c.id)) : doc.cases;
+  const previous = await latestCompletedTestRun(paths, opts.testRunId);
+  let cases = opts.only?.length ? doc.cases.filter((c) => opts.only!.includes(c.id)) : doc.cases;
+  if (opts.failed) {
+    if (!previous) throw new Error(`No finished test run to re-run failures from. Run "uitest test ${opts.ticket}" first.`);
+    const failedIds = new Set(previous.results.filter(isFailure).map((r) => r.testCase.id));
+    cases = cases.filter((c) => failedIds.has(c.id));
+    if (!cases.length) throw new Error(`Nothing to re-run: no failed or blocked cases in test run ${previous.testRunId}.`);
+    opts.asker.info(`Re-running ${cases.length} failed/blocked case(s) from test run ${previous.testRunId}: ${cases.map((c) => c.id).join(", ")}`);
+  }
   if (!cases.length) throw new Error("No test cases selected.");
 
   if (!opts.skipPreflight) {
@@ -140,12 +189,17 @@ export async function runTests(cfg: Config, opts: TestOptions) {
   }
 
   const meta = buildMeta(cfg, { ticket: opts.ticket, agent: opts.agent.id }, doc.title, await readManifest(paths), startedAt);
-  await writeText(paths.results, JSON.stringify({ meta, results }, null, 2));
-  const report = renderReport(meta, results, "evidence");
-  await writeText(paths.report, report);
-  // Top-level copy points into this test run's evidence directory.
-  await writeText(paths.latestReport, renderReport(meta, results, `test-runs/${opts.testRunId}/evidence`));
-  return { paths, meta, results };
+  // A partial run (--only / --failed) still reports every case: the rest are carried over from the previous run.
+  const all = cases.length < doc.cases.length && previous ? mergeResults(doc.cases, results, previous) : results;
+  await writeText(paths.results, JSON.stringify({ meta, results: all }, null, 2));
+  await writeReports(paths, opts.testRunId, meta, all);
+  return { paths, meta, results, all };
+}
+
+async function writeReports(paths: RunPaths, testRunId: string, meta: RunMeta, results: CaseResult[]) {
+  await writeText(paths.report, renderReport(meta, results, "evidence", (id) => `../${id}/evidence`));
+  // Top-level copy sits in the plan run dir, so evidence paths go through test-runs/.
+  await writeText(paths.latestReport, renderReport(meta, results, `test-runs/${testRunId}/evidence`, (id) => `test-runs/${id}/evidence`));
 }
 
 /** Rebuild test-report.md from saved results.json. */
@@ -153,7 +207,6 @@ export async function regenerateReport(cfg: Config, ticket: string, runId: strin
   const paths = runPaths(cfg, ticket, runId, testRunId);
   const saved = (await Bun.file(paths.results).json()) as { meta: RunMeta; results: CaseResult[] } | CaseResult[];
   if (Array.isArray(saved)) throw new Error("results.json is from an unfinished run; re-run `uitest test` to complete it.");
-  await writeText(paths.report, renderReport(saved.meta, saved.results, "evidence"));
-  await writeText(paths.latestReport, renderReport(saved.meta, saved.results, `test-runs/${testRunId}/evidence`));
+  await writeReports(paths, testRunId, saved.meta, saved.results);
   return paths.latestReport;
 }

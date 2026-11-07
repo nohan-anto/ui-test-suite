@@ -76,6 +76,22 @@ export const ConfigSchema = z.object({
         url: z.string().default("https://mcp.atlassian.com/v1/sse"),
       })
       .default({ enabled: false, url: "https://mcp.atlassian.com/v1/sse" }),
+    /**
+     * `uitest publish`: post the test report as a Jira comment with screenshots attached.
+     * The only Jira write uitest does; off by default, and needs a token allowed to add comments and attachments.
+     */
+    publish: z
+      .object({
+        enabled: z.boolean().default(false),
+        /** Defaults to jira.email / jira.token. Use a separate token here if your main one is read-only. */
+        email: z.string().nullish(),
+        token: z.string().nullish(),
+        /** Which screenshots to attach: every case, failed/blocked cases only, or none. */
+        attach: z.enum(["all", "failures", "none"]).default("all"),
+        /** Also attach the full test-report.md. */
+        attachReport: z.boolean().default(true),
+      })
+      .default({ enabled: false, attach: "all", attachReport: true }),
   }),
 
   gitlab: z

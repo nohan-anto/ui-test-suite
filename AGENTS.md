@@ -7,7 +7,7 @@ Read [`docs/PROJECT.md`](docs/PROJECT.md) before making changes. It is the share
 Essentials:
 - Bun + TypeScript. Check with `bun test` and `bun run typecheck`. Both must pass.
 - The target machine is **Windows** (PowerShell). Keep everything cross-platform (`node:path`, `resolveCommand`, `npxServer`).
-- Jira, GitLab and git access is **read-only**. Never automate credentials or SSO in the browser.
+- Jira, GitLab and git access is **read-only**. The single exception is the opt-in `uitest publish` (`src/sources/jira/publish.ts`); do not add other write paths. Never automate credentials or SSO in the browser.
 - Provider-specific code goes only in `src/agents/<id>.ts`. Phases use the `AgentAdapter` interface.
 - **Do not commit or push.** The user commits themselves.
 - **Every change updates `docs/PROJECT.md` in the same change:** add an entry under *Unreleased* in the version history, bump *Doc revision*, set *Last updated*, and update the file index or commands if they changed. See section 10 of `docs/PROJECT.md`. Also update `uitest.config.example.yaml` and `README.md` where relevant.

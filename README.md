@@ -7,6 +7,44 @@ uitest plan CIS-601     # phase 1: Jira + MRs + local code → questions to you 
 uitest test CIS-601     # phase 2: run each case in your signed-in Chrome tab → test-report.md
 ```
 
+## Quick start: commands in order
+
+**Once per machine**
+```
+bun install                # dependencies
+bun link                   # makes the `uitest` command available (open a new terminal afterwards)
+uitest init                # creates uitest.config.yaml and .env; fill them in (see Setup below)
+```
+
+**Once per working session**
+```
+uitest chrome              # starts Chrome with remote debugging; sign in via OneLogin in that window (first time only)
+uitest doctor              # everything should be green: agent, Chrome tab, Jira, GitLab, repos
+uitest index               # refresh repo indexes (fast when nothing changed; add --force to rebuild)
+```
+
+**For each ticket**
+```
+uitest plan CIS-601        # answer the agent's questions, accept the draft → test-cases.md
+                           # optional: review or edit runs/CIS-601/<run>/test-cases.md
+uitest test CIS-601        # runs every case in the signed-in tab → test-report.md
+```
+
+**After failures**
+```
+uitest test CIS-601 --failed          # re-run only failed/blocked cases
+uitest test CIS-601 --only TC-003     # re-run specific cases
+uitest report CIS-601                 # rebuild test-report.md from saved results
+```
+
+**Share the result on the story** (optional, needs `jira.publish.enabled: true`)
+```
+uitest publish CIS-601 --dry-run      # preview the comment and the list of screenshots
+uitest publish CIS-601                # post it as a comment, with screenshots attached
+```
+
+The report is at `runs/CIS-601/<run>/test-report.md`. Without `bun link`, use `bun src/cli.ts <command>` instead of `uitest <command>`.
+
 ## How it works
 
 ```
@@ -20,7 +58,7 @@ uitest (Bun CLI, does all deterministic work)
         └─ MCP: chrome-devtools-mcp (attached to your Chrome) [+ Atlassian Rovo] [+ extras]
 ```
 
-**GraphQL-aware impact.** Repos get one of three roles: `ui`, `gateway` (the GraphQL middle service) or `downstream` (the subgraphs behind it). For every changed resolver or schema field (line-accurate, from MR diffs and local commits), `impact.md` traces the full chain:
+**GraphQL- and REST-aware impact.** Repos get one of three roles: `ui`, `gateway` (the middle service the UI calls, GraphQL or a REST BFF) or `downstream` (the services behind it, GraphQL subgraphs or REST APIs, in any mix). For every changed resolver or schema field (line-accurate, from MR diffs and local commits), `impact.md` traces the full chain:
 
 ```
 subgraph field Query.ordersByCustomer (Go resolver changed)
@@ -35,6 +73,29 @@ It also works in the other direction, from a UI or gateway change to the subgrap
 - **Subgraphs:** Node schema-first, Go gqlgen (`.graphqls` + `func (r *queryResolver) X`), .NET Hot Chocolate (`[QueryType]` / `[ExtendObjectType("Query")]` / `class Query`, with `GetXAsync` read as `x`)
 
 Links are made by field name, so treat them as strong hints, not proof.
+
+**REST downstreams** are traced the same way, in a "REST impact chains" section. A changed endpoint, or a service or repository method behind it (followed to the controller up to two calls away), is linked to the gateway code that calls it, the resolver or BFF route that owns that code, and the UI operations or HTTP calls and screens on top:
+
+```
+GET api/Orders/{id} (orders-dotnet: Controllers/OrdersController.cs, reached via LoadOrderAsync())
+  → gateway resolver Query.order (calls GET orders/${id})
+    → UI query GetOrder → screens /orders/:id
+```
+
+A changed HTTP call in the UI or gateway is listed with the endpoints it hits. Calls and routes are matched by trailing path segments and method, so base URLs and `/api` prefixes don't need to line up. Recognised:
+
+- **Routes:**
+  - Node: Express/Fastify/router objects, NestJS
+  - ASP.NET: `[Route]` + `[HttpGet]` controllers, minimal APIs with `MapGroup`
+  - Go: net/http including `"GET /x"` patterns, gin/echo/fiber groups, chi, gorilla `.Methods()`
+  - Spring, Flask/FastAPI
+- **Calls:**
+  - `fetch`, axios-style clients, Apollo `RESTDataSource`
+  - `HttpClient` (`GetAsync`…), RestSharp
+  - Go `http.Get`/`NewRequest`, `fmt.Sprintf` URLs, resty
+  - RestTemplate/WebClient, requests/httpx
+
+`uitest index` prints the GraphQL and REST counts per repo, so you can check that your repos are being read.
 
 **Phase 1 (plan).** The agent reads the context bundle and the repos, and can look at the live UI. It is instructed to **ask instead of assuming**. Its questions are asked in your terminal, and your answers go back to it for the next round. This repeats until it has no questions left and you accept the draft. Output: `test-cases.md`, which you can edit. `questions.md` records every Q&A.
 
@@ -101,8 +162,19 @@ runs/CIS-601/<plan-run>/
 | `uitest doctor [--agent id]` | Check every integration |
 | `uitest index [repo] [--force]` | Build or refresh the repo indexes (cached per HEAD sha) |
 | `uitest plan <TICKET> [--agent id] [--answers f.json] [--fixtures dir]` | Phase 1 |
-| `uitest test <TICKET> [--run id] [--only TC-001,TC-003] [--agent id] [--skip-preflight]` | Phase 2. Exit code is 2 if any case fails or is blocked |
+| `uitest test <TICKET> [--run id] [--only TC-001,TC-003] [--failed] [--agent id] [--skip-preflight]` | Phase 2. Exit code is 2 if any case fails or is blocked |
 | `uitest report <TICKET> [--run id]` | Regenerate the report from saved results |
+| `uitest publish <TICKET> [--run id] [--test-run id] [--to KEY] [--dry-run] [--yes]` | Post the report to the Jira story as a comment, with screenshots attached |
+
+### Re-running tests
+
+```
+uitest test CIS-601 --failed          # re-run only the cases that failed or were blocked last time
+uitest test CIS-601 --only TC-003     # re-run specific cases
+uitest test CIS-601                   # re-run everything
+```
+
+Each run gets its own folder under `test-runs/`, so earlier results and evidence are kept. After a partial run (`--failed` or `--only`), `test-report.md` still covers **every** case. Cases that weren't re-run keep their last result, marked `↩ <test run id>`, with evidence links to that run. The exit code reflects the overall result. To re-run after a fix, you can edit `test-cases.md` first (steps, expected results, test data). The next run uses your edits.
 
 You can try everything offline with the mock agent and the recorded fixtures:
 ```
@@ -121,9 +193,35 @@ Every agent must end its reply with a JSON block matching `src/phases/protocol.t
 
 > Adapter status: **claude** has been verified against Claude Code 2.1.x. **copilot** and **codex** were built from their documented headless flags. Run `uitest doctor --agent copilot` on your work machine and adjust the adapter if it reports missing flags.
 
+### Posting the report to Jira
+
+`uitest publish CIS-601` takes the latest test run and adds a comment to the story containing:
+- the verdict and counts
+- the environment, agent and MRs
+- a table of every case with its status
+- failed steps (expected vs actual) with notes and console/network errors
+- the screenshots, shown inline as thumbnails
+
+The screenshots are uploaded as attachments on the issue. The full `test-report.md` is attached too, and the comment links to it.
+
+- **Off by default.** This is the only thing uitest ever writes to Jira. Turn it on in config:
+  ```yaml
+  jira:
+    publish:
+      enabled: true
+      token: ${JIRA_WRITE_TOKEN}   # optional; leave null to use jira.token
+      attach: all                  # all | failures | none
+      attachReport: true
+  ```
+  The token's account needs the **Add comments** and **Create attachments** permissions on the project. If your main token is read-only, create a second one and set `JIRA_WRITE_TOKEN` in `.env`. `uitest doctor` checks it.
+- **Always previewed.** The comment is saved to `test-runs/<id>/jira-comment.txt` and shown with the attachment list. Nothing is posted until you confirm (`--yes` skips the question; `--dry-run` never posts).
+- **Re-publishing is safe.** Attachments are named `uitest-<testRunId>-<file>`, and files already on the issue are not uploaded again. If a test run was already posted, you're asked before a second comment goes up (logged in `published.json`).
+- **Epics:** the comment goes on the ticket you name. Use `--to CIS-602` to post on a child story instead.
+- Very large reports are trimmed to fit Jira's comment limit. The summary table is always kept, and the attached report has everything.
+
 ## Safety
 
-- The Jira and GitLab clients can only send GET requests. Tokens are redacted from the context bundle.
+- The Jira and GitLab clients can only send GET requests. Tokens are redacted from the context bundle. The one exception is `uitest publish`. It is off by default, lives in its own class (`src/sources/jira/publish.ts`), only adds a comment and attachments to the issue you name, and always asks first.
 - Repos are never modified. `git fetch` only runs if `indexing.fetchBeforeIndex: true`.
 - Agents get read and MCP tools only. File writes and the shell are denied.
 - The agent never types credentials. If the tab shows OneLogin, the run stops and asks you to sign in.

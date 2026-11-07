@@ -6,6 +6,7 @@ import type { Config, RepoConfig } from "../config/schema.ts";
 import { mergeChange, parseFileDiff, parseMultiFileDiff, type RepoChanges } from "../repos/diff.ts";
 import { fetchAll, hasCommit, isAncestorOfHead, isGitRepo, logGrep, showPatch } from "../repos/git.ts";
 import { GraphqlLinker, graphqlChainsToMarkdown } from "../repos/graphql-impact.ts";
+import { RestLinker, restChainsToMarkdown } from "../repos/rest-impact.ts";
 import { computeImpact, impactToMarkdown, linkDownstream, RepoGraph, type RepoImpact } from "../repos/impact.ts";
 import { getIndex, indexSummaryMarkdown, type RepoIndex } from "../repos/indexer.ts";
 import type { GitLabClient } from "../sources/gitlab/client.ts";
@@ -159,9 +160,12 @@ async function analyseRepos(cfg: Config, keys: string[], mrs: CollectedMR[], log
     repoStates.push(state);
   }
   linkDownstream(impacts, indexes);
-  const { chains, hints } = await new GraphqlLinker(indexes, graphs).build(changes);
+  const gql = new GraphqlLinker(indexes, graphs);
+  const { chains, hints } = await gql.build(changes);
   if (chains.length) log(`GraphQL: traced ${chains.length} changed field/operation chain(s) across repos.`);
-  return { repoStates, impacts, indexes, graphqlMd: graphqlChainsToMarkdown(chains, hints) };
+  const rest = await new RestLinker(indexes, graphs, gql).build(changes);
+  if (rest.length) log(`REST: traced ${rest.length} changed endpoint/call chain(s) across repos.`);
+  return { repoStates, impacts, indexes, graphqlMd: [graphqlChainsToMarkdown(chains, hints), restChainsToMarkdown(rest)].filter(Boolean).join("\n") };
 }
 
 function repoStatesMarkdown(states: RepoState[]): string {

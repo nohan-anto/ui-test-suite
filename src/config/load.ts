@@ -39,5 +39,5 @@ export async function loadConfig(path = DEFAULT_CONFIG_FILE): Promise<Config> {
 
 /** Values that must never appear in logs or context bundles. */
 export function secretsOf(cfg: Config): string[] {
-  return [cfg.jira.token, cfg.gitlab.token ?? ""].filter((s) => s && s.length >= 6);
+  return [cfg.jira.token, cfg.jira.publish.token ?? "", cfg.gitlab.token ?? ""].filter((s) => s && s.length >= 6);
 }
