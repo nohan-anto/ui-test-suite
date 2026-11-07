@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import YAML from "yaml";
+import { envFlag } from "../agents/usage.ts";
 import { ConfigSchema, type Config } from "./schema.ts";
 
 export const DEFAULT_CONFIG_FILE = "uitest.config.yaml";
@@ -27,6 +28,7 @@ export function parseConfig(text: string, env: Record<string, string | undefined
   const cfg = ConfigSchema.parse(interpolateEnv(raw, env));
   cfg.repos = cfg.repos.map((r) => ({ ...r, path: expandHome(r.path) }));
   cfg.browser.profileDir = expandHome(cfg.browser.profileDir);
+  cfg.agent.showUsage = envFlag(env.UITEST_SHOW_USAGE) ?? cfg.agent.showUsage;
   return cfg;
 }
 

@@ -1,4 +1,5 @@
 import type { McpServerSpec } from "../config/schema.ts";
+import type { AgentUsage } from "./usage.ts";
 
 export type AgentMode = "plan" | "test";
 
@@ -17,6 +18,8 @@ export interface AgentRequest {
 export interface AgentResponse {
   text: string;
   raw: unknown;
+  /** Tokens / cost / premium requests, when the CLI reports them. */
+  usage?: AgentUsage;
 }
 
 export interface DoctorResult {

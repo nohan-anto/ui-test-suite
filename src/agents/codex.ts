@@ -2,11 +2,12 @@ import { join } from "node:path";
 import { toCodexOverrides } from "../mcp/servers.ts";
 import { CliAdapter } from "./cli-adapter.ts";
 import type { AgentRequest, Invocation } from "./types.ts";
+import { codexUsage } from "./usage.ts";
 
 /** OpenAI Codex CLI: `codex exec` non-interactive mode. Prompt goes via stdin ("-"), final message via -o file. */
 export class CodexAdapter extends CliAdapter {
   readonly id = "codex";
-  protected requiredFlags = ["--sandbox", "--output-last-message", "--add-dir", "--skip-git-repo-check"];
+  protected requiredFlags = ["--sandbox", "--output-last-message", "--add-dir", "--skip-git-repo-check", "--json"];
 
   constructor(bin = "codex") {
     super(bin);
@@ -14,6 +15,10 @@ export class CodexAdapter extends CliAdapter {
 
   protected override helpArgs() {
     return ["exec", "--help"];
+  }
+
+  protected override parseUsage(stdout: string, stderr: string) {
+    return codexUsage(stdout, stderr);
   }
 
   buildInvocation(req: AgentRequest, tmp: string): Invocation {
@@ -25,6 +30,7 @@ export class CodexAdapter extends CliAdapter {
       "--sandbox", "read-only",
       "--cd", req.workDirs[0]!,
       "--output-last-message", out,
+      "--json", // JSONL events on stdout (the final message still goes to `out`); carries token usage
       "-c", 'approval_policy="never"',
       ...toCodexOverrides(req.mcpServers),
     ];

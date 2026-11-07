@@ -14,6 +14,7 @@ import type { ContextManifest } from "./context.ts";
 import { loadPrompt, runPaths, type RunPaths } from "./paths.ts";
 import { TestReplySchema, type QA, type TestCase, type TestReply } from "./protocol.ts";
 import { runAgentJson } from "./run-agent.ts";
+import { formatUsage, UsageMeter } from "../agents/usage.ts";
 
 export interface TestOptions {
   ticket: string;
@@ -90,7 +91,7 @@ export function buildTestPrompt(cfg: Config, paths: RunPaths, tc: TestCase, qas:
 
 const MAX_CLARIFY = 2;
 
-async function runCase(cfg: Config, paths: RunPaths, tc: TestCase, opts: TestOptions, systemPrompt: string): Promise<CaseResult> {
+async function runCase(cfg: Config, paths: RunPaths, tc: TestCase, opts: TestOptions, systemPrompt: string, meter: UsageMeter): Promise<CaseResult> {
   const started = Date.now();
   const servers = mcpServersFor(cfg, { workspace: paths.evidenceDir });
   const qas: QA[] = [];
@@ -111,21 +112,28 @@ async function runCase(cfg: Config, paths: RunPaths, tc: TestCase, opts: TestOpt
         },
         TestReplySchema,
         join(paths.testRunDir, "transcripts", `${tc.id}-round${round}`),
+        { meter, label: tc.id },
       );
       if (reply.status !== "blocked" || !reply.questions.length || round > MAX_CLARIFY) break;
       opts.asker.info(`${tc.id} is blocked on ${reply.questions.length} question(s).`);
       for (const q of reply.questions) qas.push({ round, question: q, answer: await opts.asker.ask(q) });
     }
-    return { testCase: tc, reply: { ...reply!, id: tc.id }, durationMs: Date.now() - started };
+    return { testCase: tc, reply: { ...reply!, id: tc.id }, durationMs: Date.now() - started, ...usageOf(cfg, meter, tc.id) };
   } catch (e) {
     return {
       testCase: tc,
       reply: { id: tc.id, status: "blocked", steps: [], notes: "", consoleErrors: [], failedRequests: [], evidence: [], questions: [] },
       durationMs: Date.now() - started,
       error: (e as Error).message,
+      ...usageOf(cfg, meter, tc.id),
     };
   }
 }
+
+const usageOf = (cfg: Config, meter: UsageMeter, label: string) => {
+  const usage = cfg.agent.showUsage ? meter.total(label) : undefined;
+  return usage ? { usage } : {};
+};
 
 async function readManifest(paths: RunPaths): Promise<ContextManifest | null> {
   const f = Bun.file(join(paths.contextDir, "manifest.json"));
@@ -171,6 +179,7 @@ export async function runTests(cfg: Config, opts: TestOptions) {
   const systemPrompt = await loadPrompt("test");
   const startedAt = new Date().toISOString();
   const results: CaseResult[] = [];
+  const meter = new UsageMeter();
 
   for (const tc of cases) {
     if (tc.tags.includes("destructive") && !(await opts.asker.confirm(`${tc.id} "${tc.title}" is tagged destructive. Run it?`))) {
@@ -182,18 +191,23 @@ export async function runTests(cfg: Config, opts: TestOptions) {
       continue;
     }
     opts.asker.info(`Running ${tc.id}: ${tc.title}`);
-    const r = await runCase(cfg, paths, tc, opts, systemPrompt);
-    opts.asker.info(`${tc.id} → ${r.reply.status}${r.error ? ` (${r.error})` : ""}`);
+    const r = await runCase(cfg, paths, tc, opts, systemPrompt, meter);
+    opts.asker.info(`${tc.id} → ${r.reply.status}${r.error ? ` (${r.error})` : ""}${cfg.agent.showUsage ? ` · AI usage: ${formatUsage(meter.total(tc.id))}` : ""}`);
     results.push(r);
     await writeText(paths.results, JSON.stringify(results, null, 2)); // persist progress after every case
   }
 
   const meta = buildMeta(cfg, { ticket: opts.ticket, agent: opts.agent.id }, doc.title, await readManifest(paths), startedAt);
+  if (cfg.agent.showUsage) {
+    meta.usage = meter.total() ?? {};
+    meta.agentCalls = meter.calls();
+    await writeText(join(paths.testRunDir, "usage.json"), JSON.stringify({ agent: opts.agent.id, model: cfg.agent.model, total: meter.total(), calls: meter.entries }, null, 2));
+  }
   // A partial run (--only / --failed) still reports every case: the rest are carried over from the previous run.
   const all = cases.length < doc.cases.length && previous ? mergeResults(doc.cases, results, previous) : results;
   await writeText(paths.results, JSON.stringify({ meta, results: all }, null, 2));
   await writeReports(paths, opts.testRunId, meta, all);
-  return { paths, meta, results, all };
+  return { paths, meta, results, all, usage: meter };
 }
 
 async function writeReports(paths: RunPaths, testRunId: string, meta: RunMeta, results: CaseResult[]) {

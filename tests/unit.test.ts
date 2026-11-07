@@ -4,6 +4,7 @@ import { ClaudeAdapter } from "../src/agents/claude.ts";
 import { CodexAdapter } from "../src/agents/codex.ts";
 import { CopilotAdapter } from "../src/agents/copilot.ts";
 import { extractJson, parseAgentJson } from "../src/agents/json-extract.ts";
+import { addUsage, claudeUsage, codexUsage, copilotUsage, envFlag, formatUsage, UsageMeter } from "../src/agents/usage.ts";
 import type { AgentRequest } from "../src/agents/types.ts";
 import { buildJiraComment, MAX_COMMENT_CHARS, wikiEscape } from "../src/artifacts/jira-comment.ts";
 import { renderReport, summarise, type CaseResult } from "../src/artifacts/report.ts";
@@ -273,5 +274,58 @@ describe("jira comment", () => {
     expect(big.length).toBeLessThanOrEqual(MAX_COMMENT_CHARS);
     expect(big).toContain("|TC-040|");
     expect(big).toContain("left out to fit");
+  });
+});
+
+describe("AI usage", () => {
+  test("Claude JSON result", () => {
+    const u = claudeUsage({ result: "x", total_cost_usd: 0.0421, usage: { input_tokens: 1200, output_tokens: 340, cache_read_input_tokens: 50000, cache_creation_input_tokens: 800 }, modelUsage: { "claude-sonnet-5-5": {} } });
+    expect(u).toEqual({ inputTokens: 1200, outputTokens: 340, cacheReadTokens: 50000, cacheWriteTokens: 800, costUsd: 0.0421, models: ["claude-sonnet-5-5"] });
+    expect(formatUsage(u)).toBe("1.2k in · 340 out · 50.0k cached · $0.0421");
+    expect(claudeUsage({ result: "x" })).toBeUndefined();
+  });
+
+  test("Codex JSONL (last turn.completed) and plain-text fallback", () => {
+    const jsonl = [
+      '{"type":"thread.started","thread_id":"t"}',
+      '{"type":"turn.completed","usage":{"input_tokens":900,"cached_input_tokens":400,"output_tokens":120}}',
+      '{"type":"turn.completed","usage":{"input_tokens":2100,"cached_input_tokens":1500,"output_tokens":310}}',
+    ].join("\n");
+    expect(codexUsage(jsonl)).toEqual({ inputTokens: 2100, outputTokens: 310, cacheReadTokens: 1500, cacheWriteTokens: undefined });
+    expect(codexUsage("", "...\ntokens used\n12,345\n")).toEqual({ inputTokens: 12345 });
+    expect(codexUsage("no usage here")).toBeUndefined();
+  });
+
+  test("Copilot end-of-session summary", () => {
+    const summary = `Total usage est:       1 Premium request
+Total duration (API):  5.2s
+Usage by model:
+    claude-sonnet-4.5    13.3k input, 120 output, 2.0k cache read, 0 cache write (Est. 1 Premium request)
+    gpt-5-mini           1,500 input, 80 output (Est. 0 Premium requests)`;
+    const u = copilotUsage("reply text", summary);
+    expect(u).toEqual({ premiumRequests: 1, inputTokens: 14800, outputTokens: 200, cacheReadTokens: 2000, cacheWriteTokens: 0, models: ["claude-sonnet-4.5", "gpt-5-mini"] });
+    expect(formatUsage(u)).toBe("14.8k in · 200 out · 2.0k cached · 1 premium request");
+    expect(copilotUsage("just a reply")).toBeUndefined();
+  });
+
+  test("totals per label, and missing usage stays 'not reported'", () => {
+    const m = new UsageMeter();
+    m.add("TC-001", { inputTokens: 100, costUsd: 0.01 });
+    m.add("TC-001", { inputTokens: 50 });
+    m.add("TC-002", undefined);
+    expect(m.total("TC-001")).toEqual({ inputTokens: 150, costUsd: 0.01 });
+    expect(formatUsage(m.total("TC-002"))).toBe("not reported");
+    expect(m.total()).toEqual({ inputTokens: 150, costUsd: 0.01 });
+    expect(addUsage(undefined, undefined)).toBeUndefined();
+  });
+
+  test("UITEST_SHOW_USAGE overrides agent.showUsage", () => {
+    expect(envFlag("TRUE")).toBe(true);
+    expect(envFlag("off")).toBe(false);
+    expect(envFlag("maybe")).toBeUndefined();
+    expect(parseConfig(minimalConfig, { T: "x" }).agent.showUsage).toBe(false);
+    expect(parseConfig(minimalConfig, { T: "x", UITEST_SHOW_USAGE: "true" }).agent.showUsage).toBe(true);
+    const on = minimalConfig + "agent: { showUsage: true }\n";
+    expect(parseConfig(on, { T: "x", UITEST_SHOW_USAGE: "false" }).agent.showUsage).toBe(false);
   });
 });

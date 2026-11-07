@@ -1,3 +1,4 @@
+import { formatUsage, type AgentUsage } from "../agents/usage.ts";
 import type { TestCase, TestReply } from "../phases/protocol.ts";
 
 export interface CaseResult {
@@ -5,6 +6,8 @@ export interface CaseResult {
   reply: TestReply;
   durationMs: number;
   error?: string;
+  /** Agent usage for this case (only when agent.showUsage is on). */
+  usage?: AgentUsage;
   /** Set when this result was carried over from an earlier test run (not re-run this time). */
   fromTestRun?: string;
 }
@@ -19,6 +22,9 @@ export interface RunMeta {
   finishedAt: string;
   mergeRequests: { ref: string; state: string; sha?: string | null }[];
   repos: { name: string; head: string; note?: string }[];
+  /** Total agent usage of this test run (only when agent.showUsage is on). */
+  usage?: AgentUsage;
+  agentCalls?: number;
 }
 
 const ICON: Record<TestReply["status"], string> = { pass: "✅", fail: "❌", blocked: "⛔", skipped: "⏭️" };
@@ -55,6 +61,7 @@ export function renderReport(
     `- **Started:** ${meta.startedAt}`,
     `- **Finished:** ${meta.finishedAt}`,
   ];
+  if (meta.usage) out.push(`- **AI usage (this run):** ${formatUsage(meta.usage)} over ${meta.agentCalls ?? 0} agent call(s)`);
   if (carried.length) {
     out.push(
       `- **Re-run:** ${results.length - carried.length} case(s) ran in this test run; ${carried.length} result(s) carried over from earlier runs (marked ↩).`,
@@ -64,10 +71,11 @@ export function renderReport(
     out.push(`- **Merge requests:** ${meta.mergeRequests.map((m) => `${m.ref} [${m.state}]${m.sha ? ` @${m.sha.slice(0, 8)}` : ""}`).join(", ")}`);
   for (const r of meta.repos) out.push(`- **Repo ${r.name}:** HEAD ${r.head.slice(0, 8)}${r.note ? ` — ${r.note}` : ""}`);
 
-  out.push("", "## Summary", "", "| ID | Title | Priority | Status | Duration |", "| --- | --- | --- | --- | --- |");
+  const showUsage = !!meta.usage || results.some((r) => r.usage);
+  out.push("", "## Summary", "", `| ID | Title | Priority | Status | Duration |${showUsage ? " AI usage |" : ""}`, `| --- | --- | --- | --- | --- |${showUsage ? " --- |" : ""}`);
   for (const r of results) {
     out.push(
-      `| ${r.testCase.id} | ${esc(r.testCase.title)} | ${r.testCase.priority} | ${ICON[r.reply.status]} ${r.reply.status}${r.fromTestRun ? ` ↩ ${r.fromTestRun}` : ""} | ${(r.durationMs / 1000).toFixed(0)}s |`,
+      `| ${r.testCase.id} | ${esc(r.testCase.title)} | ${r.testCase.priority} | ${ICON[r.reply.status]} ${r.reply.status}${r.fromTestRun ? ` ↩ ${r.fromTestRun}` : ""} | ${(r.durationMs / 1000).toFixed(0)}s |${showUsage ? ` ${r.fromTestRun ? "—" : formatUsage(r.usage)} |` : ""}`,
     );
   }
 

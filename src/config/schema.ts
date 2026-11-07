@@ -32,8 +32,10 @@ export const ConfigSchema = z.object({
       timeoutSec: z.number().int().positive().default(900),
       extraArgs: z.array(z.string()).default([]),
       maxQuestionRounds: z.number().int().positive().default(8),
+      /** Show tokens / cost / premium requests per agent call and in reports. Env UITEST_SHOW_USAGE overrides. */
+      showUsage: z.boolean().default(false),
     })
-    .default({ provider: "copilot", timeoutSec: 900, extraArgs: [], maxQuestionRounds: 8 }),
+    .default({ provider: "copilot", timeoutSec: 900, extraArgs: [], maxQuestionRounds: 8, showUsage: false }),
 
   browser: z.object({
     /** "chrome-devtools" preset, or a custom MCP server spec. */

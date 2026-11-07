@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { toMcpJson } from "../mcp/servers.ts";
 import { CliAdapter } from "./cli-adapter.ts";
 import type { AgentRequest, Invocation } from "./types.ts";
+import { copilotUsage } from "./usage.ts";
 
 /** GitHub Copilot CLI: `copilot -p` programmatic mode. */
 export class CopilotAdapter extends CliAdapter {
@@ -10,6 +11,11 @@ export class CopilotAdapter extends CliAdapter {
 
   constructor(bin = "copilot") {
     super(bin);
+  }
+
+  /** Copilot prints an end-of-session usage summary (premium requests, tokens per model); parsed best-effort. */
+  protected override parseUsage(stdout: string, stderr: string) {
+    return copilotUsage(stdout, stderr);
   }
 
   buildInvocation(req: AgentRequest, tmp: string): Invocation {

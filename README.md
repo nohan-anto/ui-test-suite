@@ -14,6 +14,7 @@ uitest test CIS-601     # phase 2: run each case in your signed-in Chrome tab �
 bun install                # dependencies
 bun link                   # makes the `uitest` command available (open a new terminal afterwards)
 uitest init                # creates uitest.config.yaml and .env; fill them in (see Setup below)
+                           # optional: UITEST_SHOW_USAGE=true in .env to see tokens / AI credits used
 ```
 
 **Once per working session**
@@ -218,6 +219,28 @@ The screenshots are uploaded as attachments on the issue. The full `test-report.
 - **Re-publishing is safe.** Attachments are named `uitest-<testRunId>-<file>`, and files already on the issue are not uploaded again. If a test run was already posted, you're asked before a second comment goes up (logged in `published.json`).
 - **Epics:** the comment goes on the ticket you name. Use `--to CIS-602` to post on a child story instead.
 - Very large reports are trimmed to fit Jira's comment limit. The summary table is always kept, and the attached report has everything.
+
+### AI usage (tokens and credits)
+
+Set `UITEST_SHOW_USAGE=true` in `.env` (or `agent.showUsage: true` in the config; the env value wins) to see what each agent call used:
+
+```
+◇ TC-001 → pass · AI usage: 14.8k in · 200 out · 2.0k cached · 1 premium request
+◇ AI usage, this test run: 52.1k in · 1.4k out · 4 premium requests over 4 agent call(s)
+```
+
+- **Terminal:** `plan` shows usage per planning round and a total. `test` shows usage per case and a total.
+- **Reports:** `test-report.md` gets an *AI usage* column and a run total. Carried-over cases show `—`, because their usage belongs to the earlier run.
+- **Files:** `usage.json` (every call, including retries) is written to the plan run folder and each test-run folder.
+- **Jira:** usage is never included in the comment that `uitest publish` posts.
+
+What each agent reports:
+
+| Agent | Reported | Notes |
+| --- | --- | --- |
+| Claude Code | tokens (in, out, cache) and **USD cost** | from `--output-format json`; reliable |
+| Codex | tokens (in, out, cached) | from `codex exec --json` events |
+| Copilot CLI | **premium requests** and tokens per model | parsed from Copilot's end-of-session summary. These are Copilot's own estimates, and it may not print the summary in `-p` mode on every version. If not, the usage shows *not reported*. Your account's real usage is on GitHub's billing page |
 
 ## Safety
 

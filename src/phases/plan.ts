@@ -11,6 +11,7 @@ import { buildContext, type ContextDeps, type ContextManifest } from "./context.
 import { loadPrompt, runPaths, type RunPaths } from "./paths.ts";
 import { PlanReplySchema, type PlanReply, type QA } from "./protocol.ts";
 import { runAgentJson } from "./run-agent.ts";
+import { formatUsage, UsageMeter } from "../agents/usage.ts";
 
 export interface PlanOptions {
   ticket: string;
@@ -64,6 +65,7 @@ export async function runPlan(cfg: Config, opts: PlanOptions) {
   const qas: QA[] = [];
   let reply: PlanReply | undefined;
   let feedbackRounds = 0;
+  const meter = new UsageMeter();
 
   for (let round = 1; round <= cfg.agent.maxQuestionRounds; round++) {
     opts.asker.info(`Planning round ${round} with ${opts.agent.id}…`);
@@ -81,7 +83,9 @@ export async function runPlan(cfg: Config, opts: PlanOptions) {
       },
       PlanReplySchema,
       join(paths.transcriptsDir, `plan-round${round}`),
+      { meter, label: `round ${round}` },
     );
+    if (cfg.agent.showUsage) opts.asker.info(`AI usage, round ${round}: ${formatUsage(meter.total(`round ${round}`))}`);
 
     if (reply.questions.length) {
       opts.asker.info(`The agent has ${reply.questions.length} question(s).`);
@@ -116,5 +120,8 @@ export async function runPlan(cfg: Config, opts: PlanOptions) {
     paths.testCases,
     renderTestCases({ ticket: opts.ticket, title: manifest.title, summary: reply.summary, cases: reply.testCases }),
   );
-  return { paths, manifest, reply, qas };
+  if (cfg.agent.showUsage) {
+    await writeText(join(paths.runDir, "usage.json"), JSON.stringify({ agent: opts.agent.id, model: cfg.agent.model, total: meter.total(), calls: meter.entries }, null, 2));
+  }
+  return { paths, manifest, reply, qas, usage: meter };
 }

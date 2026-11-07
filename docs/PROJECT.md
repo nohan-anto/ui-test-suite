@@ -2,7 +2,7 @@
 
 | App version | Doc revision | Last updated |
 | --- | --- | --- |
-| 0.1.0 | 6 | 2026-11-07 |
+| 0.1.0 | 7 | 2026-11-07 |
 
 This is the single source of truth for any coding agent (Copilot, Claude, Codex or another) **working on this codebase**. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` all point here. Keep this file current when you change structure, commands or conventions.
 
@@ -88,7 +88,7 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | --- | --- |
 | `cli.ts` | commander entry point; wires every command |
 | `config/schema.ts` | zod `ConfigSchema`: `agent`, `browser`, `jira`, `gitlab`, `repos[]` (role `ui`/`gateway`/`downstream`), `indexing`, `output`, `extraMcpServers` |
-| `config/load.ts` | YAML load, `${VAR}` interpolation, `~` expansion (repo paths, `browser.profileDir`), `secretsOf()` (≥ 6 chars, for redaction) |
+| `config/load.ts` | YAML load, `${VAR}` interpolation, `~` expansion (repo paths, `browser.profileDir`), `UITEST_SHOW_USAGE` → `agent.showUsage`, `secretsOf()` (≥ 6 chars, for redaction) |
 | `util/index.ts` | `exec` (Bun.spawn, timeout, never throws), `redact`, `writeText`, `timestamp`, `truncate`, `uniq` |
 | `util/platform.ts` | `isWindows`, `npxServer()` (`cmd /c npx` on Windows), `resolveCommand()` (runs `.cmd`/`.bat` shims through `cmd.exe`) |
 | `sources/jira/client.ts` | GET-only Jira REST v3 client (`myself`, `issue`, `remoteLinks`, `search` with `nextPageToken`) |
@@ -109,12 +109,13 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | `mcp/servers.ts` | neutral MCP specs (chrome-devtools-mcp with `--browserUrl`/`--autoConnect`, Rovo via `mcp-remote`, extras) and per-agent formats (`toMcpJson`, `toCodexOverrides`) |
 | `agents/types.ts` | the `AgentAdapter`, `AgentRequest` and `Invocation` contracts |
 | `agents/cli-adapter.ts` | base class: `doctor()` checks `requiredFlags` against `--help`; `run()` writes temp files, runs, returns text. `cwd` = `workDirs[0]` |
-| `agents/{claude,codex,copilot,mock}.ts` | build each CLI's command line. Only `claude` is verified against a real CLI; `copilot`/`codex` follow their docs |
+| `agents/{claude,codex,copilot,mock}.ts` | build each CLI's command line and parse usage (`parseUsage`; codex now runs with `--json`). Only `claude` is verified against a real CLI; `copilot`/`codex` follow their docs |
+| `agents/usage.ts` | `AgentUsage` (tokens, cache, USD cost, premium requests), parsers `claudeUsage`/`codexUsage`/`copilotUsage`, `UsageMeter` (per-label totals), `formatUsage`, `envFlag` |
 | `agents/json-extract.ts` | pulls the last fenced `json` block out of agent text |
 | `agents/registry.ts` | provider id → adapter factory. **Register new providers here** |
 | `phases/protocol.ts` | zod contracts: `PlanReply`, `TestCase` (`TC-NNN`, P1–P3), `TestReply` (pass/fail/blocked/skipped), `Question`, `QA` |
 | `phases/paths.ts` | run directory layout, `latestRunId`, `loadPrompt` |
-| `phases/run-agent.ts` | `runAgentJson`: call the agent, validate, retry once with the zod error, save transcripts |
+| `phases/run-agent.ts` | `runAgentJson`: call the agent, validate, retry once with the zod error, save transcripts, record usage of every attempt in the optional `UsageMeter` |
 | `phases/context.ts` | builds the context bundle (`story.md`, `children/*.md`, `mrs.md`, `repos/<name>.md`, `impact.md`, `manifest.json`); everything redacted |
 | `phases/plan.ts` | plan loop: question rounds (`agent.maxQuestionRounds`), accept/feedback, writes `questions.md` and `test-cases.md` |
 | `phases/publish.ts` | `uitest publish`: loads `results.json`, `collectEvidence` (listed files plus `TC-NNN-*` images, from the run each result came from), preview to `jira-comment.txt`, confirm, upload (skipping existing names), comment, log to `published.json` |
@@ -174,12 +175,13 @@ runs/<TICKET>/<runId>/
 
 ## 9. Status and open items
 
-- 44 tests pass on Linux. The Windows laptop passed 35 at the last sync. The typecheck is clean.
+- 49 tests pass on Linux. The Windows laptop passed 35 at the last sync. The typecheck is clean.
 - Verified on the laptop: `doctor` (Copilot CLI 1.0.105, Jira, GitLab, 3 repos, Chrome tab after fixing `tabMatch`).
 - **Not yet verified with real systems:**
   - a full `plan`/`test` run with Copilot
   - the codex adapter
   - `uitest chrome` actually launching Chrome on Windows
+  - usage parsing against real Copilot/Codex output (Copilot `-p` may not print its summary; Codex `--json` field names vary by version)
   - `uitest publish` against real Jira (wiki rendering of the comment, thumbnails, attachment permissions)
   - GraphQL and REST extraction on the user's real repos (check the per-repo counts `uitest index` prints)
 - Next steps:
@@ -212,6 +214,10 @@ This guide grows with the application. Any agent that changes the code updates i
 Newest first. Commit hashes are from `master`.
 
 ### Unreleased
+- **Added:** AI usage reporting, toggled by `UITEST_SHOW_USAGE=true|false` (or `agent.showUsage`).
+  - Shown per plan round and per test case, with totals; an *AI usage* column and run total in `test-report.md`; `usage.json` per run.
+  - Sources: Claude (tokens and USD cost), Codex (`--json` token events), Copilot (premium-request and token estimates from its summary).
+  - Never included in Jira comments.
 - **Added:** REST-aware impact for downstreams (and BFF gateways) that are plain HTTP APIs.
   - REST routes and HTTP calls are indexed for Node, .NET, Go, Java and Python (`INDEX_VERSION` 3).
   - `impact.md` gains "REST impact chains": changed endpoint, or the service behind it, → gateway resolver/BFF route → UI operation/call → screens.

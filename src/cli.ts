@@ -17,6 +17,7 @@ import { JiraClient } from "./sources/jira/client.ts";
 import { latestRunId, latestTestRunId, runPaths } from "./phases/paths.ts";
 import { runPlan } from "./phases/plan.ts";
 import { runPublish } from "./phases/publish.ts";
+import { formatUsage } from "./agents/usage.ts";
 import { regenerateReport, runTests } from "./phases/test.ts";
 import { timestamp } from "./util/index.ts";
 
@@ -148,13 +149,14 @@ program
     p.intro(`uitest plan ${ticket} — agent: ${cfg.agent.provider}`);
     const asker = await askerFrom(o.answers);
     try {
-      const { paths, reply } = await runPlan(cfg, {
+      const { paths, reply, usage } = await runPlan(cfg, {
         ticket,
         runId: timestamp(),
         agent: createAgent(cfg.agent.provider, cfg.agent.bin),
         asker,
         deps: { ...clients(cfg, o.fixtures), log: (m) => p.log.step(m) },
       });
+      if (cfg.agent.showUsage) p.log.info(`AI usage, planning total: ${formatUsage(usage.total())} over ${usage.calls()} agent call(s)`);
       p.outro(`${reply.testCases.length} test cases → ${paths.testCases}\nReview/edit it, then run: uitest test ${ticket}`);
     } catch (e) {
       fail(e);
@@ -177,7 +179,7 @@ program
     if (!runId) fail(new Error(`No plan found for ${ticket}. Run "uitest plan ${ticket}" first.`));
     p.intro(`uitest test ${ticket} (plan ${runId}) — agent: ${cfg.agent.provider}`);
     try {
-      const { paths, results, all } = await runTests(cfg, {
+      const { paths, results, all, usage } = await runTests(cfg, {
         ticket,
         runId,
         testRunId: timestamp(),
@@ -190,6 +192,7 @@ program
       const bad = (rs: typeof results) => rs.filter((r) => r.reply.status === "fail" || r.reply.status === "blocked").length;
       const failed = bad(all);
       if (all.length !== results.length) p.log.info(`This run: ${results.length - bad(results)}/${results.length} passed or skipped.`);
+      if (cfg.agent.showUsage) p.log.info(`AI usage, this test run: ${formatUsage(usage.total())} over ${usage.calls()} agent call(s)`);
       p.outro(`${all.length - failed}/${all.length} passed or skipped → ${paths.latestReport}`);
       process.exit(failed ? 2 : 0);
     } catch (e) {

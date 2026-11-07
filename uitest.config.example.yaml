@@ -6,6 +6,7 @@ agent:
   bin: null                  # override the CLI binary path
   timeoutSec: 900            # per agent call
   maxQuestionRounds: 8       # plan-phase question/answer rounds before giving up
+  showUsage: false           # show tokens / cost / premium requests; env UITEST_SHOW_USAGE=true|false overrides this
   extraArgs: []              # appended to every agent CLI invocation
 
 browser:

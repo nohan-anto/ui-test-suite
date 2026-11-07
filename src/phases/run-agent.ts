@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { parseAgentJson } from "../agents/json-extract.ts";
 import type { AgentAdapter, AgentRequest } from "../agents/types.ts";
+import type { UsageMeter } from "../agents/usage.ts";
 import { writeText } from "../util/index.ts";
 
 /** Run the agent and validate its JSON reply; on a bad reply, retry once with the validation error. */
@@ -9,10 +10,12 @@ export async function runAgentJson<T>(
   req: AgentRequest,
   schema: z.ZodType<T>,
   transcriptPath?: string,
+  usage?: { meter: UsageMeter; label: string },
 ): Promise<T> {
   let prompt = req.prompt;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const res = await agent.run({ ...req, prompt });
+    usage?.meter.add(usage.label, res.usage); // every attempt costs, including invalid replies
     if (transcriptPath) await writeText(`${transcriptPath}.attempt${attempt}.md`, `# Prompt\n\n${prompt}\n\n# Reply\n\n${res.text}\n`);
     const parsed = parseAgentJson(res.text, schema);
     if (parsed.ok) return parsed.value;

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exec } from "../util/index.ts";
 import type { AgentAdapter, AgentRequest, AgentResponse, DoctorResult, Invocation } from "./types.ts";
+import type { AgentUsage } from "./usage.ts";
 
 /** Shared plumbing for adapters that shell out to an agent CLI. Subclasses only build the command line. */
 export abstract class CliAdapter implements AgentAdapter {
@@ -15,6 +16,10 @@ export abstract class CliAdapter implements AgentAdapter {
   /** Extract the agent's final text from CLI stdout. */
   protected parseOutput(stdout: string): { text: string; raw: unknown } {
     return { text: stdout, raw: stdout };
+  }
+  /** Token / credit usage from the CLI's output, if it reports any. */
+  protected parseUsage(_stdout: string, _stderr: string, _raw: unknown): AgentUsage | undefined {
+    return undefined;
   }
 
   async doctor(): Promise<DoctorResult> {
@@ -44,9 +49,10 @@ export abstract class CliAdapter implements AgentAdapter {
       if (r.code !== 0) throw new Error(`${this.id} exited ${r.code}: ${(r.stderr || r.stdout).slice(-2000)}`);
       if (inv.outputFile) {
         const f = Bun.file(inv.outputFile);
-        if (await f.exists()) return { text: await f.text(), raw: r.stdout };
+        if (await f.exists()) return { text: await f.text(), raw: r.stdout, usage: this.parseUsage(r.stdout, r.stderr, r.stdout) };
       }
-      return this.parseOutput(r.stdout);
+      const out = this.parseOutput(r.stdout);
+      return { ...out, usage: this.parseUsage(r.stdout, r.stderr, out.raw) };
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

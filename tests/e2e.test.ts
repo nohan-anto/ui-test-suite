@@ -152,4 +152,17 @@ test("plan → test → report, fully offline", async () => {
   const comment = requests.find((r) => r.url.endsWith("/rest/api/2/issue/DEMO-1/comment"))!;
   expect(JSON.parse(String(comment.body)).body).toContain("!uitest-t2-TC-001-step1.png|thumbnail!");
   expect(await Bun.file(join(run.paths.runDir, "test-runs", "t4", "published.json")).text()).toContain("10001");
+
+  // AI usage: off by default (no column, no usage.json); on → per-case column, run total, usage.json
+  expect(await Bun.file(join(run.paths.testRunDir, "usage.json")).exists()).toBe(false);
+  expect(await Bun.file(run.paths.report).text()).not.toContain("AI usage");
+  cfg.agent.showUsage = true;
+  const metered = await runTests(cfg, { ticket: "DEMO-1", runId: "r1", testRunId: "t6", agent, asker, only: ["TC-001"], skipPreflight: true });
+  expect(metered.usage.total()).toEqual({ inputTokens: 1000, outputTokens: 200, costUsd: 0.001 });
+  const usageReport = await Bun.file(metered.paths.report).text();
+  expect(usageReport).toContain("- **AI usage (this run):** 1.0k in · 200 out · $0.0010 over 1 agent call(s)");
+  expect(usageReport).toContain("| ✅ pass | 0s | 1.0k in · 200 out · $0.0010 |");
+  expect(usageReport).toContain("↩ t4 | 0s | — |"); // carried-over case: its usage belongs to an earlier run
+  expect(await Bun.file(join(metered.paths.testRunDir, "usage.json")).text()).toContain('"label": "TC-001"');
+  cfg.agent.showUsage = false;
 }, 120_000);

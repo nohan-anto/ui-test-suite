@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { toMcpJson } from "../mcp/servers.ts";
 import { CliAdapter } from "./cli-adapter.ts";
 import type { AgentRequest, Invocation } from "./types.ts";
+import { claudeUsage } from "./usage.ts";
 
 /** Claude Code: `claude -p` headless mode. */
 export class ClaudeAdapter extends CliAdapter {
@@ -37,6 +38,10 @@ export class ClaudeAdapter extends CliAdapter {
         [systemPath]: req.systemPrompt,
       },
     };
+  }
+
+  protected override parseUsage(_stdout: string, _stderr: string, raw: unknown) {
+    return claudeUsage(raw);
   }
 
   protected override parseOutput(stdout: string) {

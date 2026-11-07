@@ -17,7 +17,7 @@ export class MockAdapter implements AgentAdapter {
     this.calls.push(req);
     const reply = req.mode === "plan" ? this.plan(req.prompt) : this.test(req.prompt);
     const text = `Mock agent reply.\n\n\`\`\`json\n${JSON.stringify(reply, null, 2)}\n\`\`\``;
-    return { text, raw: reply };
+    return { text, raw: reply, usage: { inputTokens: 1000, outputTokens: 200, costUsd: 0.001 } };
   }
 
   private plan(prompt: string) {
