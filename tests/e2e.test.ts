@@ -40,7 +40,7 @@ repos:
   - { name: web-ui, path: ${JSON.stringify(repo)}, role: ui, gitlabProject: demo/web-ui }
 indexing: { cacheDir: ${JSON.stringify(join(work, "cache"))} }
 output: { dir: ${JSON.stringify(join(work, "runs"))} }
-`);
+`, {}); // empty env: tests must not pick up the developer's .env (e.g. UITEST_SHOW_USAGE)
 }, 60_000); // git on Windows (antivirus, credential helpers) can be slow
 
 afterAll(() => {

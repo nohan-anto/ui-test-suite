@@ -2,7 +2,7 @@
 
 | App version | Doc revision | Last updated |
 | --- | --- | --- |
-| 0.1.0 | 7 | 2026-11-07 |
+| 0.1.0 | 8 | 2026-11-08 |
 
 This is the single source of truth for any coding agent (Copilot, Claude, Codex or another) **working on this codebase**. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` all point here. Keep this file current when you change structure, commands or conventions.
 
@@ -161,9 +161,10 @@ runs/<TICKET>/<runId>/
 3. **No assumptions.** Prompts make the agent ask instead of guess. Every test case has `tracesTo` (AC-n, story key, comment, MR).
 4. **Secrets are redacted** from the context bundle and transcripts (`secretsOf` + `redact`).
 5. **Agent-agnostic.** Provider-specific code lives only in `agents/<id>.ts` and in the MCP format helpers. Phases talk to `AgentAdapter` only. Replies are JSON validated by zod.
-6. **Windows-safe.** Use `node:path` `join`/`resolve`, `resolveCommand` for spawning, `npxServer` for MCP servers, and pass long prompts through files rather than argv. In tests, build YAML paths with `JSON.stringify`.
-7. **`test-cases.md` format round-trips** through `renderTestCases`/`parseTestCases`.
-8. **Test history is append-only.** Every `uitest test` writes a new `test-runs/<testRunId>/` and never edits earlier runs. `results.json` of a finished run is `{ meta, results }` covering every planned case; an unfinished run is a bare array.
+6. **Tests are isolated from the developer's machine.** Bun loads `.env` automatically, even under `bun test`, so tests always pass an explicit env to `parseConfig` (`parseConfig(yaml, {})` or a small object), and never rely on `process.env`.
+7. **Windows-safe.** Use `node:path` `join`/`resolve`, `resolveCommand` for spawning, `npxServer` for MCP servers, and pass long prompts through files rather than argv. In tests, build YAML paths with `JSON.stringify`.
+8. **`test-cases.md` format round-trips** through `renderTestCases`/`parseTestCases`.
+9. **Test history is append-only.** Every `uitest test` writes a new `test-runs/<testRunId>/` and never edits earlier runs. `results.json` of a finished run is `{ meta, results }` covering every planned case; an unfinished run is a bare array.
 
 ## 8. How to extend
 
@@ -214,6 +215,7 @@ This guide grows with the application. Any agent that changes the code updates i
 Newest first. Commit hashes are from `master`.
 
 ### Unreleased
+- **Fixed:** tests failed on a machine whose `.env` had `UITEST_SHOW_USAGE=true` (Bun loads `.env` in tests too). Test configs now get an empty env.
 - **Added:** AI usage reporting, toggled by `UITEST_SHOW_USAGE=true|false` (or `agent.showUsage`).
   - Shown per plan round and per test case, with totals; an *AI usage* column and run total in `test-report.md`; `usage.json` per run.
   - Sources: Claude (tokens and USD cost), Codex (`--json` token events), Copilot (premium-request and token estimates from its summary).

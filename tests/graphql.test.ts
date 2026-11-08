@@ -133,7 +133,7 @@ repos:
   - { name: orders-go, path: ${JSON.stringify(goSub)}, role: downstream }
   - { name: users-dotnet, path: ${JSON.stringify(netSub)}, role: downstream }
 indexing: { cacheDir: ${JSON.stringify(join(work, "cache"))} }
-`);
+`, {}); // empty env: tests must not pick up the developer's .env (e.g. UITEST_SHOW_USAGE)
   const ctxDir = join(work, "ctx");
   await buildContext(cfg, "DEMO-1", ctxDir, {
     jira: new JiraClient(cfg.jira.baseUrl, "a", "t", fixtureFetch(join(import.meta.dir, "fixtures"), "jira")),

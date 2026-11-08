@@ -81,7 +81,7 @@ jira: { baseUrl: "https://demo.atlassian.net", email: "a@b.c", token: "t" }
 repos:
 ${repos.map((r) => `  - { name: ${r.name}, path: ${JSON.stringify(r.path)}, role: ${r.role} }`).join("\n")}
 indexing: { cacheDir: ${JSON.stringify(join(work, `cache-${repos[0]!.name}`))} }
-`);
+`, {}); // empty env: tests must not pick up the developer's .env (e.g. UITEST_SHOW_USAGE)
   const ctxDir = join(work, `ctx-${repos[0]!.name}`);
   await buildContext(cfg, "DEMO-1", ctxDir, {
     jira: new JiraClient(cfg.jira.baseUrl, "a", "t", fixtureFetch(join(import.meta.dir, "fixtures"), "jira")),
