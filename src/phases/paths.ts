@@ -10,6 +10,10 @@ export interface RunPaths {
   transcriptsDir: string;
   testCases: string;
   questions: string;
+  /** Things to consider, from `uitest chat` / the pre-test prompt. */
+  notes: string;
+  /** Transcript of `uitest chat` conversations. */
+  chat: string;
   /** Copy of the most recent test run's report. */
   latestReport: string;
   /** One directory per `uitest test` execution, so re-runs keep history. */
@@ -32,6 +36,8 @@ export function runPaths(cfg: Config, ticket: string, runId: string, testRunId =
     transcriptsDir: join(runDir, "transcripts"),
     testCases: join(runDir, "test-cases.md"),
     questions: join(runDir, "questions.md"),
+    notes: join(runDir, "notes.md"),
+    chat: join(runDir, "chat.md"),
     latestReport: join(runDir, "test-report.md"),
     testRunDir,
     evidenceDir: join(testRunDir, "evidence"),
@@ -57,6 +63,6 @@ export function latestRunId(cfg: Config, ticket: string): string | null {
   return runs.at(-1) ?? null;
 }
 
-export async function loadPrompt(name: "plan" | "test"): Promise<string> {
+export async function loadPrompt(name: "plan" | "test" | "chat"): Promise<string> {
   return Bun.file(join(PROMPTS_DIR, `${name}.md`)).text();
 }

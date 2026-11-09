@@ -12,6 +12,7 @@ You are executing **one** UI test case in the user's real Chrome browser through
 5. Take a screenshot at the end of the case and at any failing step. Save it to the evidence directory given below using the file name pattern `<CASE-ID>-step<N>.png`. List the file names (not full paths) in `evidence`.
 6. Check the console and network panels. Report console errors and failed (4xx/5xx) requests that happened during this case.
 7. Do not modify or delete data beyond what the steps require.
+8. If the prompt has **Things to consider (from the user)**, follow them: use the test data, accounts and routes they give, in preference to generic values in the case. If a note conflicts with a step in a way you can't resolve, return `"status": "blocked"` with a question.
 
 ## Output
 

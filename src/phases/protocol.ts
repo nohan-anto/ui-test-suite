@@ -48,6 +48,15 @@ export const TestReplySchema = z.object({
 });
 export type TestReply = z.infer<typeof TestReplySchema>;
 
+export const ChatReplySchema = z.object({
+  answer: z.string(),
+  /** New things to consider (test data, accounts, routes, focus, exclusions) distilled from the user's message. */
+  notes: z.array(z.string()).default([]),
+  /** The full, updated test case list, only when the plan should change. */
+  testCases: z.array(TestCaseSchema).optional(),
+});
+export type ChatReply = z.infer<typeof ChatReplySchema>;
+
 export interface QA {
   round: number;
   question: Question;

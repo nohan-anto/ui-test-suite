@@ -6,6 +6,7 @@ import { answersForPrompt } from "../artifacts/questions.ts";
 import { renderReport, type CaseResult, type RunMeta } from "../artifacts/report.ts";
 import { parseTestCases } from "../artifacts/testcases.ts";
 import { ensureBrowser } from "../browser/ensure.ts";
+import { mergeNotes, readNotes, renderNotes } from "../artifacts/notes.ts";
 import type { Config } from "../config/schema.ts";
 import { mcpServersFor } from "../mcp/servers.ts";
 import type { Asker } from "../qa/interactive.ts";
@@ -26,6 +27,8 @@ export interface TestOptions {
   /** Re-run only the cases that failed or were blocked in the latest completed test run. */
   failed?: boolean;
   skipPreflight?: boolean;
+  /** Ask once, before running, whether there is anything to consider (default true). */
+  askToConsider?: boolean;
 }
 
 export interface SavedTestRun {
@@ -67,7 +70,7 @@ export function mergeResults(planned: TestCase[], ran: CaseResult[], previous: S
   return out;
 }
 
-export function buildTestPrompt(cfg: Config, paths: RunPaths, tc: TestCase, qas: QA[]): string {
+export function buildTestPrompt(cfg: Config, paths: RunPaths, tc: TestCase, qas: QA[], notes: string[] = []): string {
   const origins = cfg.browser.allowedOrigins.length ? cfg.browser.allowedOrigins : [new URL(cfg.browser.appBaseUrl).origin];
   return [
     `# Execute ${tc.id}: ${tc.title}`,
@@ -85,13 +88,16 @@ export function buildTestPrompt(cfg: Config, paths: RunPaths, tc: TestCase, qas:
     "",
     "Steps are numbered from 1 in the order above; report one entry per step.",
     "",
+    ...(notes.length
+      ? ["## Things to consider (from the user)", "", "Apply these where they are relevant to this case. They override generic values in the test case.", "", ...notes.map((n) => `- ${n}`), ""]
+      : []),
     answersForPrompt(qas),
   ].join("\n");
 }
 
 const MAX_CLARIFY = 2;
 
-async function runCase(cfg: Config, paths: RunPaths, tc: TestCase, opts: TestOptions, systemPrompt: string, meter: UsageMeter): Promise<CaseResult> {
+async function runCase(cfg: Config, paths: RunPaths, tc: TestCase, opts: TestOptions, systemPrompt: string, meter: UsageMeter, notes: string[]): Promise<CaseResult> {
   const started = Date.now();
   const servers = mcpServersFor(cfg, { workspace: paths.evidenceDir });
   const qas: QA[] = [];
@@ -101,7 +107,7 @@ async function runCase(cfg: Config, paths: RunPaths, tc: TestCase, opts: TestOpt
       reply = await runAgentJson(
         opts.agent,
         {
-          prompt: buildTestPrompt(cfg, paths, tc, qas),
+          prompt: buildTestPrompt(cfg, paths, tc, qas, notes),
           systemPrompt,
           mcpServers: servers,
           workDirs: [paths.runDir],
@@ -169,6 +175,25 @@ export async function runTests(cfg: Config, opts: TestOptions) {
   }
   if (!cases.length) throw new Error("No test cases selected.");
 
+  // One chance, before anything runs, to add test data or instructions (no per-case prompts).
+  let notes = await readNotes(paths.notes);
+  if (opts.askToConsider !== false) {
+    if (notes.length) opts.asker.info(`Things to consider (notes.md):\n${notes.map((n) => `  • ${n}`).join("\n")}`);
+    const extra = await opts.asker.ask(
+      {
+        id: "CONSIDER",
+        question: "Anything else the agent should consider for this run? (test data, accounts, routes…; Enter to start)",
+        why: "",
+        options: [],
+      },
+      { allowEmpty: true },
+    );
+    if (extra) {
+      notes = mergeNotes(notes, [extra]);
+      await writeText(paths.notes, renderNotes(opts.ticket, notes));
+    }
+  }
+
   if (!opts.skipPreflight) {
     const pf = await ensureBrowser(cfg, opts.asker);
     if (!pf.ok) throw new Error(`Browser preflight failed:\n  ${pf.problems.join("\n  ")}`);
@@ -191,7 +216,7 @@ export async function runTests(cfg: Config, opts: TestOptions) {
       continue;
     }
     opts.asker.info(`Running ${tc.id}: ${tc.title}`);
-    const r = await runCase(cfg, paths, tc, opts, systemPrompt, meter);
+    const r = await runCase(cfg, paths, tc, opts, systemPrompt, meter, notes);
     opts.asker.info(`${tc.id} → ${r.reply.status}${r.error ? ` (${r.error})` : ""}${cfg.agent.showUsage ? ` · AI usage: ${formatUsage(meter.total(tc.id))}` : ""}`);
     results.push(r);
     await writeText(paths.results, JSON.stringify(results, null, 2)); // persist progress after every case

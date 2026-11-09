@@ -17,6 +17,7 @@ import { JiraClient } from "./sources/jira/client.ts";
 import { latestRunId, latestTestRunId, runPaths } from "./phases/paths.ts";
 import { runPlan } from "./phases/plan.ts";
 import { runPublish } from "./phases/publish.ts";
+import { runChat } from "./phases/chat.ts";
 import { formatUsage } from "./agents/usage.ts";
 import { regenerateReport, runTests } from "./phases/test.ts";
 import { timestamp } from "./util/index.ts";
@@ -164,7 +165,11 @@ program
         deps: { ...clients(cfg, o.fixtures), log: (m) => p.log.step(m) },
       });
       if (cfg.agent.showUsage) p.log.info(`AI usage, planning total: ${formatUsage(usage.total())} over ${usage.calls()} agent call(s)`);
-      p.outro(`${reply.testCases.length} test cases → ${paths.testCases}\nReview/edit it, then run: uitest test ${ticket}`);
+      p.outro(
+        `${reply.testCases.length} test cases → ${paths.testCases}\n` +
+          `Review/edit it, or ask the agent about it and give test data: uitest chat ${ticket}\n` +
+          `Then run: uitest test ${ticket}`,
+      );
     } catch (e) {
       fail(e);
     }
@@ -179,6 +184,7 @@ program
   .option("--failed", "re-run only the cases that failed or were blocked in the latest test run")
   .option("--answers <file>", "answer questions from a JSON file instead of the terminal")
   .option("--skip-preflight", "do not check Chrome before running (e.g. with the mock agent)")
+  .option("--no-ask", "don't ask for things to consider before running")
   .action(async (ticket: string, o) => {
     const cfg = await cfgFrom(o).catch(fail);
     ticket = ticket.toUpperCase();
@@ -195,6 +201,7 @@ program
         only: o.only?.split(",").map((s: string) => s.trim().toUpperCase()),
         failed: o.failed,
         skipPreflight: o.skipPreflight,
+        askToConsider: o.ask,
       });
       const bad = (rs: typeof results) => rs.filter((r) => r.reply.status === "fail" || r.reply.status === "blocked").length;
       const failed = bad(all);
@@ -202,6 +209,29 @@ program
       if (cfg.agent.showUsage) p.log.info(`AI usage, this test run: ${formatUsage(usage.total())} over ${usage.calls()} agent call(s)`);
       p.outro(`${all.length - failed}/${all.length} passed or skipped → ${paths.latestReport}`);
       process.exit(failed ? 2 : 0);
+    } catch (e) {
+      fail(e);
+    }
+  });
+
+program
+  .command("chat <ticket>")
+  .description("ask the agent about its plan (routes, data, screens) and tell it what to consider; saved to notes.md")
+  .option("--agent <id>", `override agent (${AGENT_IDS.join("|")})`)
+  .option("--run <id>", "plan run id (default: latest)")
+  .action(async (ticket: string, o) => {
+    const cfg = await cfgFrom(o).catch(fail);
+    ticket = ticket.toUpperCase();
+    const runId = o.run ?? latestRunId(cfg, ticket);
+    if (!runId) fail(new Error(`No plan found for ${ticket}. Run "uitest plan ${ticket}" first.`));
+    p.intro(`uitest chat ${ticket} (plan ${runId}) — agent: ${cfg.agent.provider}`);
+    try {
+      const r = await runChat(cfg, { ticket, runId, agent: createAgent(cfg.agent.provider, cfg.agent.bin), asker: new TerminalAsker() });
+      if (cfg.agent.showUsage && r.turns) p.log.info(`AI usage, this chat: ${formatUsage(r.usage.total())} over ${r.usage.calls()} agent call(s)`);
+      p.outro(
+        `${r.turns} message(s). ${r.notes.length} note(s) in ${r.paths.notes}${r.applied ? `; test-cases.md updated ${r.applied} time(s)` : ""}.\n` +
+          `Run the tests with these notes: uitest test ${ticket}`,
+      );
     } catch (e) {
       fail(e);
     }

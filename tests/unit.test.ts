@@ -13,6 +13,8 @@ import { chromeArgs, chromeCandidates } from "../src/browser/launch.ts";
 import { pickTab, signInProblem } from "../src/browser/preflight.ts";
 import { interpolateEnv, parseConfig } from "../src/config/load.ts";
 import { rovoServer, toCodexOverrides, toMcpJson } from "../src/mcp/servers.ts";
+import { mergeNotes, parseNotes, renderNotes } from "../src/artifacts/notes.ts";
+import { describeCaseChanges } from "../src/phases/chat.ts";
 import { PlanReplySchema, type TestCase } from "../src/phases/protocol.ts";
 import { normaliseEndpoint } from "../src/repos/impact.ts";
 import { fileBasedRoute, scanSource } from "../src/repos/indexer.ts";
@@ -351,5 +353,22 @@ describe("Rovo MCP", () => {
 
   test("off by default", () => {
     expect(rovoServer(parseConfig(minimalConfig, { T: "x" }))).toBeNull();
+  });
+});
+
+describe("chat notes and plan changes", () => {
+  test("notes.md round-trips and merges without duplicates", () => {
+    const md = renderNotes("X-1", ["Use order 10045", "Admin role only"]);
+    expect(parseNotes(md)).toEqual(["Use order 10045", "Admin role only"]);
+    expect(mergeNotes(["Use order 10045"], ["use ORDER 10045", " Skip IE ", ""])).toEqual(["Use order 10045", "Skip IE"]);
+  });
+
+  test("describes added, changed and removed cases", () => {
+    const tc = (id: string, title: string, steps = ["a"]): TestCase => ({ id, title, priority: "P2", tracesTo: [], tags: [], preconditions: [], testData: [], steps, expected: ["b"] });
+    expect(describeCaseChanges([tc("TC-001", "A"), tc("TC-002", "B")], [tc("TC-001", "A", ["a", "c"]), tc("TC-003", "C")])).toEqual([
+      "~ TC-001: A (changed: steps)",
+      "+ TC-003: C (new)",
+      "- TC-002: B (removed)",
+    ]);
   });
 });

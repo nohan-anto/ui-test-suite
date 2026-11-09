@@ -7,6 +7,7 @@ import { parseConfig } from "../src/config/load.ts";
 import type { Config } from "../src/config/schema.ts";
 import { runPlan } from "../src/phases/plan.ts";
 import { runPublish } from "../src/phases/publish.ts";
+import { runChat } from "../src/phases/chat.ts";
 import { regenerateReport, runTests } from "../src/phases/test.ts";
 import { ScriptedAsker } from "../src/qa/interactive.ts";
 import { fixtureFetch } from "../src/sources/fixtures.ts";
@@ -165,4 +166,50 @@ test("plan → test → report, fully offline", async () => {
   expect(usageReport).toContain("↩ t4 | 0s | — |"); // carried-over case: its usage belongs to an earlier run
   expect(await Bun.file(join(metered.paths.testRunDir, "usage.json")).text()).toContain('"label": "TC-001"');
   cfg.agent.showUsage = false;
+}, 120_000);
+
+test("chat: answers about the plan, saves things to consider, updates cases; test uses the notes", async () => {
+  const agent = new MockAdapter();
+  const deps = {
+    jira: new JiraClient(cfg.jira.baseUrl, cfg.jira.email, cfg.jira.token, fixtureFetch(FIXTURES, "jira")),
+    gitlab: new GitLabClient(cfg.gitlab.baseUrl, cfg.gitlab.token, fixtureFetch(FIXTURES, "gitlab")),
+    log: () => {},
+  };
+  const plan = await runPlan(cfg, { ticket: "DEMO-1", runId: "r2", agent, asker: new ScriptedAsker({ Q1: "Standard user" }), deps });
+
+  const chatAsker = new ScriptedAsker({
+    "CHAT-1": "Which route does TC-001 use?",
+    "CHAT-2": "Use the account qa-user-2 for all cases",
+    "CHAT-3": "Please retitle TC-001 [mock-update]",
+    "CHAT-4": "exit",
+  });
+  const before = agent.calls.length;
+  const chat = await runChat(cfg, { ticket: "DEMO-1", runId: "r2", agent, asker: chatAsker });
+  expect(chat.turns).toBe(3);
+  expect(agent.calls.length - before).toBe(3);
+  expect(agent.calls.at(-1)!.mode).toBe("chat");
+  expect(agent.calls.at(-1)!.prompt).toContain("**User:** Which route does TC-001 use?"); // history is passed along
+  expect(chat.notes).toEqual(["Use the account qa-user-2 for all cases"]);
+  expect(chat.applied).toBe(1);
+  expect(await Bun.file(plan.paths.testCases).text()).toContain("## TC-001: Happy path on the addresses screen");
+  expect(await Bun.file(plan.paths.chat).text()).toContain("**Agent:** Mock: TC-001 starts on /profile/addresses");
+
+  // test: one "anything to consider?" prompt, merged into notes.md, given to every case
+  const testAsker = new ScriptedAsker({ CONSIDER: "Use order 10045 for order cases" });
+  const calls = agent.calls.length;
+  await runTests(cfg, { ticket: "DEMO-1", runId: "r2", testRunId: "t1", agent, asker: testAsker, skipPreflight: true });
+  expect(testAsker.asked.map((q) => q.id)).toEqual(["CONSIDER"]);
+  const testPrompts = agent.calls.slice(calls).map((c) => c.prompt);
+  expect(testPrompts).toHaveLength(2);
+  for (const pr of testPrompts) {
+    expect(pr).toContain("## Things to consider (from the user)");
+    expect(pr).toContain("- Use the account qa-user-2 for all cases");
+    expect(pr).toContain("- Use order 10045 for order cases");
+  }
+  expect(await Bun.file(plan.paths.notes).text()).toContain("- Use order 10045 for order cases");
+
+  // --no-ask equivalent: no prompt
+  const quiet = new ScriptedAsker();
+  await runTests(cfg, { ticket: "DEMO-1", runId: "r2", testRunId: "t2", agent, asker: quiet, only: ["TC-001"], skipPreflight: true, askToConsider: false });
+  expect(quiet.asked).toHaveLength(0);
 }, 120_000);

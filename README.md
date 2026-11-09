@@ -27,8 +27,8 @@ uitest index               # refresh repo indexes (fast when nothing changed; ad
 **For each ticket**
 ```
 uitest plan CIS-601        # answer the agent's questions, accept the draft → test-cases.md
-                           # optional: review or edit runs/CIS-601/<run>/test-cases.md
-uitest test CIS-601        # runs every case in the signed-in tab → test-report.md
+uitest chat CIS-601        # optional: ask what/how it will test (routes, screens), give test data → notes.md
+uitest test CIS-601        # asks once for anything else to consider, then runs every case → test-report.md
 ```
 
 **After failures**
@@ -163,9 +163,34 @@ runs/CIS-601/<plan-run>/
 | `uitest doctor [--agent id]` | Check every integration |
 | `uitest index [repo] [--force]` | Build or refresh the repo indexes (cached per HEAD sha) |
 | `uitest plan <TICKET> [--agent id] [--answers f.json] [--fixtures dir]` | Phase 1 |
-| `uitest test <TICKET> [--run id] [--only TC-001,TC-003] [--failed] [--agent id] [--skip-preflight]` | Phase 2. Exit code is 2 if any case fails or is blocked |
+| `uitest test <TICKET> [--run id] [--only TC-001,TC-003] [--failed] [--no-ask] [--agent id] [--skip-preflight]` | Phase 2. Exit code is 2 if any case fails or is blocked |
+| `uitest chat <TICKET> [--run id] [--agent id]` | Chat with the agent about the plan; things to consider go to `notes.md`, plan changes to `test-cases.md` |
 | `uitest report <TICKET> [--run id]` | Regenerate the report from saved results |
 | `uitest publish <TICKET> [--run id] [--test-run id] [--to KEY] [--dry-run] [--yes]` | Post the report to the Jira story as a comment, with screenshots attached |
+
+### Chatting about the plan, and giving test data
+
+After planning, `uitest chat CIS-601` opens a conversation with the agent about its plan. It has the same read-only access as planning: the context bundle, your repos, and the signed-in tab to look at (no changes).
+
+```
+You: which route does TC-002 use?
+agent: TC-002 starts on /orders/:id (src/pages/orders/[id].tsx, reached via the GetOrder chain in impact.md).
+You: use order 10045 for the order cases, and log in as a Standard user
+agent: Noted.
+  Saved to notes.md (used by every test case):
+    • Use order 10045 for the order cases
+    • Run as a Standard user
+You: also add a case for an order with no items
+  Apply these changes to test-cases.md?
+    + TC-006: Order with no items shows the empty state (new)
+```
+
+- **Ask anything about the plan:** what a case covers, which route or screen or API it uses, why a case exists, what's not covered.
+- **Things to consider:** test data, accounts, roles, routes, focus areas, things to skip. They are saved to `runs/<TICKET>/<run>/notes.md`, and **every test case** gets them. You can edit that file by hand.
+- **Changing the plan:** when you ask for a change, the agent proposes an updated case list, and you confirm before `test-cases.md` is rewritten.
+- **When it runs:** whenever you like. Before testing, or after a run (e.g. give the right data, then `uitest test CIS-601 --failed`).
+- **The conversation** is kept in `chat.md`.
+- **At the start of `uitest test`** you're asked once: *"Anything else the agent should consider for this run?"* Type something to add it to `notes.md`, or press Enter to start. `--no-ask` skips the question.
 
 ### Re-running tests
 

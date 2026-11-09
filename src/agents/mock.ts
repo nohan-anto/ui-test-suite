@@ -15,7 +15,7 @@ export class MockAdapter implements AgentAdapter {
 
   async run(req: AgentRequest): Promise<AgentResponse> {
     this.calls.push(req);
-    const reply = req.mode === "plan" ? this.plan(req.prompt) : this.test(req.prompt);
+    const reply = req.mode === "plan" ? this.plan(req.prompt) : req.mode === "chat" ? this.chat(req.prompt) : this.test(req.prompt);
     const text = `Mock agent reply.\n\n\`\`\`json\n${JSON.stringify(reply, null, 2)}\n\`\`\``;
     return { text, raw: reply, usage: { inputTokens: 1000, outputTokens: 200, costUsd: 0.001 } };
   }
@@ -63,6 +63,21 @@ export class MockAdapter implements AgentAdapter {
         },
       ],
     };
+  }
+
+  /**
+   * Chat: echoes the message. a message starting with "use" becomes a note; "[mock-update]" renames TC-001 (to exercise plan updates);
+   * "[mock-invalid]" returns an invalid reply.
+   */
+  private chat(prompt: string) {
+    const message = prompt.split("## The user's message").at(-1)!.trim();
+    const route = prompt.includes("TC-001") ? "TC-001 starts on /profile/addresses (src/pages/profile/addresses.tsx)." : "";
+    const reply: Record<string, unknown> = { answer: `Mock: ${route || "ok."}`, notes: /^use\b/i.test(message) ? [message] : [] };
+    if (message.includes("[mock-update]")) {
+      const cases = (this.plan("## Answers from the user") as { testCases: Record<string, unknown>[] }).testCases;
+      reply.testCases = cases.map((c) => (c.id === "TC-001" ? { ...c, title: "Happy path on the addresses screen" } : c));
+    }
+    return reply;
   }
 
   private test(prompt: string) {

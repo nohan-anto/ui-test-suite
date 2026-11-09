@@ -2,7 +2,7 @@
 
 | App version | Doc revision | Last updated |
 | --- | --- | --- |
-| 0.1.0 | 9 | 2026-11-09 |
+| 0.1.0 | 10 | 2026-11-09 |
 
 This is the single source of truth for any coding agent (Copilot, Claude, Codex or another) **working on this codebase**. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` all point here. Keep this file current when you change structure, commands or conventions.
 
@@ -49,7 +49,8 @@ bun src/cli.ts <cmd>     # or `uitest <cmd>` after `bun link`
 | `doctor [--agent id]` | check the agent CLI and its flags, Chrome tab and sign-in, Jira, GitLab and repo paths |
 | `index [repo] [--force]` | build or refresh the lexical index (cached per HEAD sha + `INDEX_VERSION`) |
 | `plan <ticket> [--agent] [--answers file] [--fixtures dir]` | phase 1 |
-| `test <ticket> [--run id] [--only TC-001,…] [--failed] [--answers file] [--skip-preflight]` | phase 2; `--failed` re-runs the failed/blocked cases from the latest finished test run. Partial runs merge with the previous results. Exit code 2 if anything is failing overall |
+| `test <ticket> [--run id] [--only TC-001,…] [--failed] [--no-ask] [--answers file] [--skip-preflight]` | phase 2; `--failed` re-runs the failed/blocked cases from the latest finished test run. Partial runs merge with the previous results. Exit code 2 if anything is failing overall |
+| `chat <ticket> [--run id] [--agent]` | conversation about the plan (read-only agent): answers, things to consider → `notes.md`, confirmed plan changes → `test-cases.md`, transcript → `chat.md` |
 | `report <ticket> [--run id]` | re-render the report from `results.json` |
 | `publish <ticket> [--run] [--test-run] [--to KEY] [--dry-run] [--yes]` | post the report as a Jira comment with screenshots attached (needs `jira.publish.enabled`) |
 
@@ -80,7 +81,7 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | `uitest.config.example.yaml` | every config option, commented. **Update it when you add a config key.** |
 | `.env.example` | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `GITLAB_TOKEN` |
 | `README.md` | user-facing setup and usage (including the Windows notes) |
-| `prompts/plan.md`, `prompts/test.md` | system prompts for the runtime agent: rules and the JSON output shape |
+| `prompts/plan.md`, `prompts/test.md`, `prompts/chat.md` | system prompts for the runtime agent: rules and the JSON output shape |
 | `.gitignore` | ignores `uitest.config.yaml`, `.env*`, `runs/`, `.uitest/` |
 
 ### `src/`
@@ -113,18 +114,20 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | `agents/usage.ts` | `AgentUsage` (tokens, cache, USD cost, premium requests), parsers `claudeUsage`/`codexUsage`/`copilotUsage`, `UsageMeter` (per-label totals), `formatUsage`, `envFlag` |
 | `agents/json-extract.ts` | pulls the last fenced `json` block out of agent text |
 | `agents/registry.ts` | provider id → adapter factory. **Register new providers here** |
-| `phases/protocol.ts` | zod contracts: `PlanReply`, `TestCase` (`TC-NNN`, P1–P3), `TestReply` (pass/fail/blocked/skipped), `Question`, `QA` |
+| `phases/protocol.ts` | zod contracts: `PlanReply`, `TestCase` (`TC-NNN`, P1–P3), `TestReply` (pass/fail/blocked/skipped), `ChatReply` (`answer`, `notes`, optional full `testCases`), `Question`, `QA` |
 | `phases/paths.ts` | run directory layout, `latestRunId`, `loadPrompt` |
 | `phases/run-agent.ts` | `runAgentJson`: call the agent, validate, retry once with the zod error, save transcripts, record usage of every attempt in the optional `UsageMeter` |
 | `phases/context.ts` | builds the context bundle (`story.md`, `children/*.md`, `mrs.md`, `repos/<name>.md`, `impact.md`, `manifest.json`); everything redacted |
 | `phases/plan.ts` | plan loop: question rounds (`agent.maxQuestionRounds`), accept/feedback, writes `questions.md` and `test-cases.md` |
 | `phases/publish.ts` | `uitest publish`: loads `results.json`, `collectEvidence` (listed files plus `TC-NNN-*` images, from the run each result came from), preview to `jira-comment.txt`, confirm, upload (skipping existing names), comment, log to `published.json` |
+| `phases/chat.ts` | `runChat`: message loop (empty line / `exit` ends), `buildChatPrompt` (bundle paths, current test cases, notes, last 10 turns), notes → `notes.md`, `describeCaseChanges` + confirm → `test-cases.md`, `chat.md` transcript |
 | `phases/test.ts` | browser check, confirmation for `destructive` cases, one isolated agent run per case (up to 2 clarification rounds), `results.json` and the report. `latestCompletedTestRun` + `mergeResults`: after `--failed`/`--only`, cases not re-run are carried over with `fromTestRun` set |
 | `browser/preflight.ts` | CDP HTTP checks: `/json/version`, tab matched by `tabMatch` (defaults to the `appBaseUrl` host), SSO URL check, optional signed-in selector |
 | `browser/launch.ts` | find Chrome per OS, start it detached with `--remote-debugging-port` and `--user-data-dir`, wait for the port |
 | `browser/ensure.ts` | interactive preflight: offers to start Chrome, waits for the user to sign in |
-| `qa/interactive.ts` | `Asker` interface; `TerminalAsker` (clack), `ScriptedAsker` (answers from JSON, for tests) |
+| `qa/interactive.ts` | `Asker` interface (`ask(q, { allowEmpty })`, `confirm`, `info`); `TerminalAsker` (clack), `ScriptedAsker` (answers from JSON, for tests; unanswered optional questions return "") |
 | `artifacts/testcases.ts` | render **and parse** `test-cases.md` (`## TC-001: title`, `- **Priority:**`, `**Steps**` …). Users edit this file by hand, so keep the round-trip lossless |
+| `artifacts/notes.ts` | `notes.md` (things to consider): `parseNotes`, `renderNotes`, `mergeNotes` (case-insensitive dedupe), `readNotes` |
 | `artifacts/questions.ts` | `questions.md` and answers formatted for prompts |
 | `artifacts/jira-comment.ts` | `buildJiraComment`: Jira wiki markup with a summary table, failure details and `!name\|thumbnail!` images; `wikiEscape`; trims to `MAX_COMMENT_CHARS` |
 | `artifacts/report.ts` | summary table, failures, per-case details, traceability matrix. Carried-over results are marked `↩ <testRunId>`, and their evidence links point to that run |
@@ -145,6 +148,8 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 runs/<TICKET>/<runId>/
   context/        story.md, children/*.md, mrs.md, repos/*.md, impact.md, manifest.json
   questions.md    Q&A from planning
+  notes.md        things to consider (from chat / the pre-test prompt), given to every test case
+  chat.md         chat transcript
   test-cases.md   approved cases (editable)
   test-report.md  copy of the latest test run's report
   transcripts/    raw agent I/O
@@ -176,7 +181,7 @@ runs/<TICKET>/<runId>/
 
 ## 9. Status and open items
 
-- 49 tests pass on Linux. The Windows laptop passed 35 at the last sync. The typecheck is clean.
+- 56 tests pass on Linux. The Windows laptop passed 35 at the last sync. The typecheck is clean.
 - Verified on the laptop: `doctor` (Copilot CLI 1.0.105, Jira, GitLab, 3 repos, Chrome tab after fixing `tabMatch`).
 - **Not yet verified with real systems:**
   - a full `plan`/`test` run with Copilot
@@ -216,6 +221,11 @@ This guide grows with the application. Any agent that changes the code updates i
 Newest first. Commit hashes are from `master`.
 
 ### Unreleased
+- **Added:** `uitest chat <ticket>`, a conversation with the read-only agent about its plan.
+  - The user can ask which routes, screens or data a case uses; what they say to consider is saved to `notes.md`; plan changes are applied to `test-cases.md` after confirmation.
+  - `uitest test` asks once, before running, for anything else to consider (`--no-ask` skips).
+  - Every test case prompt includes the notes, and `prompts/test.md` rule 8 makes them take precedence over generic values.
+  - New agent mode `chat`, `ChatReplySchema`, `prompts/chat.md`, `Asker.ask(q, { allowEmpty })`.
 - **Changed:** Rovo MCP moved from the retired HTTP+SSE endpoint (`/v1/sse`, shut down 30 June 2026) to Streamable HTTP at `https://mcp.atlassian.com/v1/mcp/authv2`.
   - `mcp-remote` is pinned to `--transport http-only`.
   - New `jira.rovo.transport` (`mcp-remote` | `http`).

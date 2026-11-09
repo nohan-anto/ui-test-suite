@@ -2,8 +2,13 @@
 import * as p from "@clack/prompts";
 import type { Question } from "../phases/protocol.ts";
 
+export interface AskOptions {
+  /** Accept an empty answer (Enter to skip). */
+  allowEmpty?: boolean;
+}
+
 export interface Asker {
-  ask(q: Question): Promise<string>;
+  ask(q: Question, opts?: AskOptions): Promise<string>;
   confirm(message: string): Promise<boolean>;
   info(message: string): void;
 }
@@ -11,8 +16,8 @@ export interface Asker {
 const OTHER = "__other__";
 
 export class TerminalAsker implements Asker {
-  async ask(q: Question): Promise<string> {
-    p.note(q.why || "", `${q.id}: ${q.question}`);
+  async ask(q: Question, opts: AskOptions = {}): Promise<string> {
+    if (q.why) p.note(q.why, `${q.id}: ${q.question}`);
     let answer: string | symbol;
     if (q.options.length) {
       answer = await p.select({
@@ -21,13 +26,14 @@ export class TerminalAsker implements Asker {
       });
       if (answer === OTHER) answer = await p.text({ message: "Your answer" });
     } else {
-      answer = await p.text({ message: q.question, validate: (v) => (v?.trim() ? undefined : "An answer is required") });
+      answer = await p.text({ message: q.question, validate: (v) => (v?.trim() || opts.allowEmpty ? undefined : "An answer is required") });
     }
+    if (p.isCancel(answer) && opts.allowEmpty) return "";
     if (p.isCancel(answer)) {
       p.cancel("Cancelled.");
       process.exit(130);
     }
-    return String(answer).trim();
+    return String(answer ?? "").trim();
   }
 
   async confirm(message: string): Promise<boolean> {
@@ -49,9 +55,9 @@ export class ScriptedAsker implements Asker {
     private readonly fallback = "No preference",
     private readonly confirmAll = true,
   ) {}
-  async ask(q: Question) {
+  async ask(q: Question, opts: AskOptions = {}) {
     this.asked.push(q);
-    return this.answers[q.id] ?? this.answers[q.question] ?? this.fallback;
+    return this.answers[q.id] ?? this.answers[q.question] ?? (opts.allowEmpty ? "" : this.fallback);
   }
   async confirm() {
     return this.confirmAll;

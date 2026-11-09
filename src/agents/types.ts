@@ -1,7 +1,8 @@
 import type { McpServerSpec } from "../config/schema.ts";
 import type { AgentUsage } from "./usage.ts";
 
-export type AgentMode = "plan" | "test";
+/** plan and chat are read-only (code, context, observing the UI); test may interact with the UI. */
+export type AgentMode = "plan" | "test" | "chat";
 
 export interface AgentRequest {
   prompt: string;
