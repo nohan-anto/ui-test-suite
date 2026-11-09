@@ -18,6 +18,7 @@ import { latestRunId, latestTestRunId, runPaths } from "./phases/paths.ts";
 import { runPlan } from "./phases/plan.ts";
 import { runPublish } from "./phases/publish.ts";
 import { runChat } from "./phases/chat.ts";
+import { runGuided } from "./flow/guided.ts";
 import { formatUsage } from "./agents/usage.ts";
 import { regenerateReport, runTests } from "./phases/test.ts";
 import { timestamp } from "./util/index.ts";
@@ -51,6 +52,21 @@ function fail(e: unknown): never {
   p.log.error((e as Error).message);
   process.exit(1);
 }
+
+program
+  .command("start [ticket]", { isDefault: true })
+  .description("guided flow (default when no command is given): plan → chat/review → Chrome & sign-in → test → results")
+  .option("--agent <id>", `override agent (${AGENT_IDS.join("|")})`)
+  .action(async (ticket: string | undefined, o) => {
+    const cfg = await cfgFrom(o).catch(fail);
+    p.intro(`uitest — agent: ${cfg.agent.provider}`);
+    try {
+      const r = await runGuided(cfg, { agent: createAgent(cfg.agent.provider, cfg.agent.bin), asker: new TerminalAsker(), contextDeps: () => ({ ...clients(cfg), log: (m) => p.log.info(m) }) }, ticket);
+      p.outro(r.tested ? `Done. Latest report: ${runPaths(cfg, r.ticket, r.runId).latestReport}` : `Done. Plan: ${runPaths(cfg, r.ticket, r.runId).testCases}`);
+    } catch (e) {
+      fail(e);
+    }
+  });
 
 program
   .command("init")
@@ -267,7 +283,8 @@ program
     const testRunId = o.testRun ?? latestTestRunId(runPaths(cfg, ticket, runId));
     if (!testRunId) fail(new Error(`No test runs under plan ${runId}. Run "uitest test ${ticket}" first.`));
     const terminal = new TerminalAsker();
-    const asker: Asker = o.yes ? { ask: (q) => terminal.ask(q), confirm: async () => true, info: (m) => terminal.info(m) } : terminal;
+    // --yes: same terminal, but every confirmation is answered yes.
+    const asker: Asker = o.yes ? Object.assign(Object.create(terminal), { confirm: async () => true }) : terminal;
     try {
       const r = await runPublish(cfg, { ticket, runId, testRunId, to: o.to, dryRun: o.dryRun, asker });
       if (r.posted) p.log.success(`Posted to ${cfg.jira.baseUrl.replace(/\/+$/, "")}/browse/${r.issue}?focusedCommentId=${r.commentId} (${r.uploaded} new attachment(s))`);

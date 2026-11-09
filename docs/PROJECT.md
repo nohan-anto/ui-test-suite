@@ -2,7 +2,7 @@
 
 | App version | Doc revision | Last updated |
 | --- | --- | --- |
-| 0.1.0 | 10 | 2026-11-09 |
+| 0.1.0 | 11 | 2026-11-09 |
 
 This is the single source of truth for any coding agent (Copilot, Claude, Codex or another) **working on this codebase**. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` all point here. Keep this file current when you change structure, commands or conventions.
 
@@ -44,6 +44,7 @@ bun src/cli.ts <cmd>     # or `uitest <cmd>` after `bun link`
 
 | CLI command | Purpose |
 | --- | --- |
+| `[start] [ticket]` | **default command**: guided menu flow (`src/flow/guided.ts`) through plan → chat/view/edit/re-plan → Chrome launch → signed-in check → case selection → run → re-run/chat/publish; back to the menu from any pre-run step |
 | `init` | copy `uitest.config.example.yaml` → `uitest.config.yaml`, `.env.example` → `.env` |
 | `chrome [--print]` | start Chrome with remote debugging on the dedicated profile, per OS |
 | `doctor [--agent id]` | check the agent CLI and its flags, Chrome tab and sign-in, Jira, GitLab and repo paths |
@@ -125,7 +126,8 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | `browser/preflight.ts` | CDP HTTP checks: `/json/version`, tab matched by `tabMatch` (defaults to the `appBaseUrl` host), SSO URL check, optional signed-in selector |
 | `browser/launch.ts` | find Chrome per OS, start it detached with `--remote-debugging-port` and `--user-data-dir`, wait for the port |
 | `browser/ensure.ts` | interactive preflight: offers to start Chrome, waits for the user to sign in |
-| `qa/interactive.ts` | `Asker` interface (`ask(q, { allowEmpty })`, `confirm`, `info`); `TerminalAsker` (clack), `ScriptedAsker` (answers from JSON, for tests; unanswered optional questions return "") |
+| `qa/interactive.ts` | `Asker` interface (`ask(q, { allowEmpty })`, `select(id, message, choices, escape)`, `multiselect`, `confirm`, `info`); `TerminalAsker` (clack; Esc in a menu returns its escape value), `ScriptedAsker` (answers by question/menu id, a list per id for repeated menus; unscripted menus pick escape or the first choice; records `menus`) |
+| `flow/guided.ts` | `runGuided(cfg, deps, ticket?)`: the menu state machine (`menu` → `browser` → `select` → run → `afterRun`). `deps.browser` (check/launch) and `deps.newId` are injectable for tests |
 | `artifacts/testcases.ts` | render **and parse** `test-cases.md` (`## TC-001: title`, `- **Priority:**`, `**Steps**` …). Users edit this file by hand, so keep the round-trip lossless |
 | `artifacts/notes.ts` | `notes.md` (things to consider): `parseNotes`, `renderNotes`, `mergeNotes` (case-insensitive dedupe), `readNotes` |
 | `artifacts/questions.ts` | `questions.md` and answers formatted for prompts |
@@ -181,7 +183,7 @@ runs/<TICKET>/<runId>/
 
 ## 9. Status and open items
 
-- 56 tests pass on Linux. The Windows laptop passed 35 at the last sync. The typecheck is clean.
+- 58 tests pass on Linux. The Windows laptop passed 35 at the last sync. The typecheck is clean.
 - Verified on the laptop: `doctor` (Copilot CLI 1.0.105, Jira, GitLab, 3 repos, Chrome tab after fixing `tabMatch`).
 - **Not yet verified with real systems:**
   - a full `plan`/`test` run with Copilot
@@ -221,6 +223,7 @@ This guide grows with the application. Any agent that changes the code updates i
 Newest first. Commit hashes are from `master`.
 
 ### Unreleased
+- **Added:** guided flow, the default command (`uitest` or `uitest CIS-601`). It goes ticket → reuse or make a plan → menu (start testing, chat, view, edit by hand, re-plan, exit) → Chrome launch offer → "are you signed in?" → choose cases (all, failed, pick) → start → results menu (re-run failed, chat, publish, menu, exit). Esc goes back. `Asker` gained `select`/`multiselect`.
 - **Added:** `uitest chat <ticket>`, a conversation with the read-only agent about its plan.
   - The user can ask which routes, screens or data a case uses; what they say to consider is saved to `notes.md`; plan changes are applied to `test-cases.md` after confirmation.
   - `uitest test` asks once, before running, for anything else to consider (`--no-ask` skips).

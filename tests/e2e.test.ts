@@ -8,6 +8,8 @@ import type { Config } from "../src/config/schema.ts";
 import { runPlan } from "../src/phases/plan.ts";
 import { runPublish } from "../src/phases/publish.ts";
 import { runChat } from "../src/phases/chat.ts";
+import { runGuided } from "../src/flow/guided.ts";
+import type { PreflightResult } from "../src/browser/preflight.ts";
 import { regenerateReport, runTests } from "../src/phases/test.ts";
 import { ScriptedAsker } from "../src/qa/interactive.ts";
 import { fixtureFetch } from "../src/sources/fixtures.ts";
@@ -213,3 +215,65 @@ test("chat: answers about the plan, saves things to consider, updates cases; tes
   await runTests(cfg, { ticket: "DEMO-1", runId: "r2", testRunId: "t2", agent, asker: quiet, only: ["TC-001"], skipPreflight: true, askToConsider: false });
   expect(quiet.asked).toHaveLength(0);
 }, 120_000);
+
+test("guided flow: ticket → plan → view/chat → launch Chrome → signed in → test → re-run failed → exit", async () => {
+  const gcfg: Config = { ...cfg, output: { ...cfg.output, dir: join(work, "runs-guided") } };
+  const agent = new MockAdapter();
+  const asker = new ScriptedAsker({
+    TICKET: ["not a key", "demo-1"],
+    Q1: "Standard user",
+    MENU: ["view", "chat", "test"],
+    "CHAT-1": "Use account qa-3 for every case",
+    "CHAT-2": "",
+    CHROME: ["launch"],
+    "SIGNED-IN": ["yes", "yes"],
+    CASES: ["all", "failed"],
+    START: ["start", "start"],
+    AFTER: ["rerun", "exit"],
+  });
+  const tab = { id: "1", type: "page", title: "App", url: "https://app.example.com/home" };
+  const checks: PreflightResult[] = [
+    { ok: false, mode: "browserUrl", problems: ["Chrome is not reachable"] },
+    { ok: true, mode: "browserUrl", browser: "Chrome/150", tab, problems: [] },
+    { ok: true, mode: "browserUrl", browser: "Chrome/150", tab, problems: [] },
+  ];
+  let launched = 0;
+  let id = 0;
+  const r = await runGuided(gcfg, {
+    agent,
+    asker,
+    newId: () => `g${++id}`,
+    contextDeps: () => ({
+      jira: new JiraClient(cfg.jira.baseUrl, cfg.jira.email, cfg.jira.token, fixtureFetch(FIXTURES, "jira")),
+      gitlab: new GitLabClient(cfg.gitlab.baseUrl, cfg.gitlab.token, fixtureFetch(FIXTURES, "gitlab")),
+      log: () => {},
+    }),
+    browser: { check: async () => checks.shift() ?? checks.at(-1)!, launch: async () => (launched++, { ok: true, alreadyRunning: false, message: "Started Chrome" }) },
+  });
+
+  expect(r).toEqual({ ticket: "DEMO-1", runId: "g1", tested: 2 });
+  expect(asker.menus).toEqual(["MENU", "MENU", "MENU", "CHROME", "SIGNED-IN", "CASES", "START", "AFTER", "SIGNED-IN", "CASES", "START", "AFTER"]);
+  expect(launched).toBe(1);
+  const testCalls = agent.calls.filter((c) => c.mode === "test");
+  expect(testCalls.map((c) => c.prompt.match(/TC-\d{3}/)![0])).toEqual(["TC-001", "TC-002", "TC-002"]); // all, then only the failed one
+  for (const c of testCalls) expect(c.prompt).toContain("- Use account qa-3 for every case");
+  expect(await Bun.file(join(gcfg.output.dir, "DEMO-1", "g1", "test-runs", "g3", "results.json")).exists()).toBe(true);
+}, 120_000);
+
+test("guided flow: an existing plan can be reused, and Esc/back from testing returns to the menu", async () => {
+  const gcfg: Config = { ...cfg, output: { ...cfg.output, dir: join(work, "runs-guided") } };
+  const asker = new ScriptedAsker({ PLAN: "reuse", MENU: ["test", "exit"], "SIGNED-IN": "back" });
+  const tab = { id: "1", type: "page", title: "App", url: "https://app.example.com/" };
+  const r = await runGuided(
+    gcfg,
+    {
+      agent: new MockAdapter(),
+      asker,
+      contextDeps: () => { throw new Error("should not re-plan"); },
+      browser: { check: async () => ({ ok: true, mode: "browserUrl", browser: "Chrome", tab, problems: [] }), launch: async () => { throw new Error("no launch"); } },
+    },
+    "DEMO-1",
+  );
+  expect(r.tested).toBe(0);
+  expect(asker.menus).toEqual(["PLAN", "MENU", "SIGNED-IN", "MENU"]);
+}, 60_000);

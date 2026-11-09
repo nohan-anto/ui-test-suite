@@ -7,8 +7,18 @@ export interface AskOptions {
   allowEmpty?: boolean;
 }
 
+export interface Choice<T extends string = string> {
+  value: T;
+  label: string;
+  hint?: string;
+}
+
 export interface Asker {
   ask(q: Question, opts?: AskOptions): Promise<string>;
+  /** Pick one option. `id` names the menu (for scripted answers); Esc returns `escape` when given. */
+  select<T extends string>(id: string, message: string, choices: Choice<T>[], escape?: T): Promise<T>;
+  /** Pick several options (at least one). */
+  multiselect<T extends string>(id: string, message: string, choices: Choice<T>[]): Promise<T[]>;
   confirm(message: string): Promise<boolean>;
   info(message: string): void;
 }
@@ -36,6 +46,22 @@ export class TerminalAsker implements Asker {
     return String(answer ?? "").trim();
   }
 
+  async select<T extends string>(_id: string, message: string, choices: Choice<T>[], escape?: T): Promise<T> {
+    const r = await p.select<T>({ message, options: choices.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) as any });
+    if (p.isCancel(r)) {
+      if (escape !== undefined) return escape;
+      p.cancel("Cancelled.");
+      process.exit(130);
+    }
+    return r as T;
+  }
+
+  async multiselect<T extends string>(_id: string, message: string, choices: Choice<T>[]): Promise<T[]> {
+    const r = await p.multiselect<T>({ message, options: choices.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) as any, required: true });
+    if (p.isCancel(r)) return [];
+    return r as T[];
+  }
+
   async confirm(message: string): Promise<boolean> {
     const r = await p.confirm({ message });
     if (p.isCancel(r)) process.exit(130);
@@ -47,17 +73,41 @@ export class TerminalAsker implements Asker {
   }
 }
 
-/** Answers from a fixed map / default; used by tests and `--answers file.json`. */
+/**
+ * Answers from a fixed map / default; used by tests and `--answers file.json`.
+ * A value may be a list, consumed one answer per call (for menus shown more than once).
+ * Menus with no scripted answer pick the escape value, else the first choice.
+ */
 export class ScriptedAsker implements Asker {
   readonly asked: Question[] = [];
+  readonly menus: string[] = [];
   constructor(
-    private readonly answers: Record<string, string> = {},
+    private readonly answers: Record<string, string | string[]> = {},
     private readonly fallback = "No preference",
     private readonly confirmAll = true,
   ) {}
+  private take(key: string): string | undefined {
+    const v = this.answers[key];
+    return Array.isArray(v) ? v.shift() : v;
+  }
   async ask(q: Question, opts: AskOptions = {}) {
     this.asked.push(q);
-    return this.answers[q.id] ?? this.answers[q.question] ?? (opts.allowEmpty ? "" : this.fallback);
+    return this.take(q.id) ?? this.take(q.question) ?? (opts.allowEmpty ? "" : this.fallback);
+  }
+  async select<T extends string>(id: string, _message: string, choices: Choice<T>[], escape?: T): Promise<T> {
+    this.menus.push(id);
+    const a = this.take(id);
+    if (a !== undefined) {
+      const c = choices.find((c) => c.value === a);
+      if (!c) throw new Error(`Scripted answer "${a}" for menu ${id} is not one of: ${choices.map((c) => c.value).join(", ")}`);
+      return c.value;
+    }
+    return escape ?? choices[0]!.value;
+  }
+  async multiselect<T extends string>(id: string, _message: string, choices: Choice<T>[]): Promise<T[]> {
+    this.menus.push(id);
+    const a = this.take(id);
+    return a === undefined ? choices.map((c) => c.value) : (a.split(",").map((s) => s.trim()) as T[]).filter((v) => choices.some((c) => c.value === v));
   }
   async confirm() {
     return this.confirmAll;

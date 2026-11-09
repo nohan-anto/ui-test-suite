@@ -3,6 +3,12 @@
 Plan and run UI tests for a Jira ticket using any AI coding agent (GitHub Copilot CLI, Claude Code or Codex) and your **already signed-in Chrome** session.
 
 ```
+uitest                  # guided: pick a ticket, plan, chat, launch Chrome, sign in, test, re-run, publish
+```
+
+Or step by step:
+
+```
 uitest plan CIS-601     # phase 1: Jira + MRs + local code → questions to you → test-cases.md
 uitest test CIS-601     # phase 2: run each case in your signed-in Chrome tab → test-report.md
 ```
@@ -24,7 +30,21 @@ uitest doctor              # everything should be green: agent, Chrome tab, Jira
 uitest index               # refresh repo indexes (fast when nothing changed; add --force to rebuild)
 ```
 
-**For each ticket**
+**For each ticket: just run `uitest`** (or `uitest CIS-601`) and follow the menus:
+
+```
+Which Jira ticket? CIS-601
+  → plan: the agent asks its questions, you accept the draft         (or reuse an existing plan)
+  → menu:  Start testing →  |  Chat with the agent  |  View the test cases  |  Edit test-cases.md  |  Make a new plan  |  Exit
+  → Chrome isn't running → Launch Chrome for me | I started it myself | ← Back
+  → Chrome is ready: tab "App". Are you signed in? → Yes | Not yet, check again | ← Back
+  → Which test cases? → All | Only the failed ones | Choose cases… | ← Back
+  → Start the test run? → Start test | ← Choose different cases | ← Back to the menu
+  → results → Re-run failed | Chat (e.g. give test data) | Post to Jira | ← Menu | Exit
+```
+
+Every step before the run can go back to the menu (Esc also goes back). The same steps as separate commands:
+
 ```
 uitest plan CIS-601        # answer the agent's questions, accept the draft → test-cases.md
 uitest chat CIS-601        # optional: ask what/how it will test (routes, screens), give test data → notes.md
@@ -158,6 +178,7 @@ runs/CIS-601/<plan-run>/
 
 | Command | What it does |
 | --- | --- |
+| `uitest [start] [TICKET] [--agent id]` | Guided, menu-driven flow through everything below (the default command) |
 | `uitest init` | Create `uitest.config.yaml` and `.env` from the examples |
 | `uitest chrome [--print]` | Start Chrome with remote debugging on the uitest profile (Windows, macOS, Linux), or print the command |
 | `uitest doctor [--agent id]` | Check every integration |
