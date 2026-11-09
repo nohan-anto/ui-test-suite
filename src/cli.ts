@@ -7,7 +7,7 @@ import { AGENT_IDS, createAgent } from "./agents/registry.ts";
 import { chromeArgs, findChrome, launchChrome } from "./browser/launch.ts";
 import { preflight } from "./browser/preflight.ts";
 import { DEFAULT_CONFIG_FILE, loadConfig } from "./config/load.ts";
-import type { Config } from "./config/schema.ts";
+import { isRetiredRovoUrl, ROVO_URL, type Config } from "./config/schema.ts";
 import { ScriptedAsker, TerminalAsker, type Asker } from "./qa/interactive.ts";
 import { isGitRepo } from "./repos/git.ts";
 import { getIndex } from "./repos/indexer.ts";
@@ -95,7 +95,14 @@ program
     else p.log.warn("gitlab: no token configured, MR lookup disabled");
 
     for (const r of cfg.repos) report(await isGitRepo(r.path), `repo ${r.name}: ${r.path}`);
-    if (cfg.jira.rovo.enabled) p.log.info("rovo: enabled — the agent CLI will prompt for Atlassian OAuth on first use");
+    if (cfg.jira.rovo.enabled) {
+      if (isRetiredRovoUrl(cfg.jira.rovo.url)) p.log.warn(`rovo: jira.rovo.url is the retired SSE endpoint; using ${ROVO_URL} instead. Update uitest.config.yaml.`);
+      p.log.info(
+        cfg.jira.rovo.transport === "mcp-remote"
+          ? "rovo: enabled via mcp-remote — a browser opens for the Atlassian sign-in on first use (token cached in ~/.mcp-auth)"
+          : "rovo: enabled via the agent CLI's own remote-MCP support — sign in through the agent CLI first",
+      );
+    }
     process.exit(ok ? 0 : 1);
   });
 

@@ -1,5 +1,5 @@
 /** Provider-neutral MCP server specs. Adapters translate these into each agent CLI's own config format. */
-import type { Config, McpServerSpec } from "../config/schema.ts";
+import { isRetiredRovoUrl, ROVO_URL, type Config, type McpServerSpec } from "../config/schema.ts";
 import { npxServer } from "../util/platform.ts";
 
 export const CHROME_MCP_NAME = "chrome-devtools";
@@ -26,10 +26,16 @@ export function chromeDevtoolsServer(cfg: Config, opts: BrowserMcpOptions = {}):
   return { name: CHROME_MCP_NAME, ...npxServer(args), env: {}, headers: {} };
 }
 
+/** The Rovo URL to use: the configured one, with the retired /v1/sse endpoint replaced by the current one. */
+export const rovoUrl = (cfg: Config) => (isRetiredRovoUrl(cfg.jira.rovo.url) ? ROVO_URL : cfg.jira.rovo.url);
+
 export function rovoServer(cfg: Config): McpServerSpec | null {
   if (!cfg.jira.rovo.enabled) return null;
-  // Atlassian Remote MCP (Rovo). Auth is OAuth, completed by the agent CLI on first use.
-  return { name: "atlassian", ...npxServer(["-y", "mcp-remote", cfg.jira.rovo.url]), env: {}, headers: {} };
+  const url = rovoUrl(cfg);
+  if (cfg.jira.rovo.transport === "http") return { name: "atlassian", url, args: [], env: {}, headers: {} };
+  // Atlassian Rovo MCP through the mcp-remote bridge, which does the OAuth sign-in (browser, first use) and caches
+  // the token. http-only: never fall back to the retired SSE transport.
+  return { name: "atlassian", ...npxServer(["-y", "mcp-remote", url, "--transport", "http-only"]), env: {}, headers: {} };
 }
 
 export function mcpServersFor(cfg: Config, opts: BrowserMcpOptions = {}): McpServerSpec[] {

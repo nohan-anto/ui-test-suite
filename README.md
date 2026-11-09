@@ -242,6 +242,15 @@ What each agent reports:
 | Codex | tokens (in, out, cached) | from `codex exec --json` events |
 | Copilot CLI | **premium requests** and tokens per model | parsed from Copilot's end-of-session summary. These are Copilot's own estimates, and it may not print the summary in `-p` mode on every version. If not, the usage shows *not reported*. Your account's real usage is on GitHub's billing page |
 
+### Atlassian Rovo (optional)
+
+Set `jira.rovo.enabled: true` to give the planning agent the Atlassian Rovo MCP server (Rovo search, Confluence, Jira). uitest does not need it: all Jira data is already collected through the REST API.
+
+- **Endpoint:** `https://mcp.atlassian.com/v1/mcp/authv2` (Streamable HTTP). The old `/v1/sse` endpoint was retired on 30 June 2026. A config that still points to it is switched to the new URL automatically, and `uitest doctor` tells you to update it.
+- **Sign-in:** with `transport: mcp-remote` (the default), a local `npx mcp-remote` bridge opens a browser for the Atlassian sign-in on first use and caches the token in `~/.mcp-auth`. This works the same for every agent. Sign in once interactively before a long run, so a headless run doesn't wait on it. With `transport: http`, the agent CLI connects to the URL itself and handles the sign-in.
+- **Your Atlassian admin** must allow Rovo MCP for your site.
+- **Caution:** the Rovo server includes tools that can edit Jira and Confluence, and uitest doesn't yet restrict the agent to its read-only tools. Keep it off unless you need it.
+
 ## Safety
 
 - The Jira and GitLab clients can only send GET requests. Tokens are redacted from the context bundle. The one exception is `uitest publish`. It is off by default, lives in its own class (`src/sources/jira/publish.ts`), only adds a comment and attachments to the issue you name, and always asks first.

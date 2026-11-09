@@ -12,7 +12,7 @@ import { parseTestCases, renderTestCases } from "../src/artifacts/testcases.ts";
 import { chromeArgs, chromeCandidates } from "../src/browser/launch.ts";
 import { pickTab, signInProblem } from "../src/browser/preflight.ts";
 import { interpolateEnv, parseConfig } from "../src/config/load.ts";
-import { toCodexOverrides, toMcpJson } from "../src/mcp/servers.ts";
+import { rovoServer, toCodexOverrides, toMcpJson } from "../src/mcp/servers.ts";
 import { PlanReplySchema, type TestCase } from "../src/phases/protocol.ts";
 import { normaliseEndpoint } from "../src/repos/impact.ts";
 import { fileBasedRoute, scanSource } from "../src/repos/indexer.ts";
@@ -327,5 +327,29 @@ Usage by model:
     expect(parseConfig(minimalConfig, { T: "x", UITEST_SHOW_USAGE: "true" }).agent.showUsage).toBe(true);
     const on = minimalConfig + "agent: { showUsage: true }\n";
     expect(parseConfig(on, { T: "x", UITEST_SHOW_USAGE: "false" }).agent.showUsage).toBe(false);
+  });
+});
+
+describe("Rovo MCP", () => {
+  const rovo = (extra: string) => parseConfig(minimalConfig.replace('token: "${T}" }', `token: "\${T}", rovo: { enabled: true${extra} } }`), { T: "x" });
+
+  test("defaults to the Streamable HTTP endpoint through mcp-remote, never SSE", () => {
+    const s = rovoServer(rovo(""))!;
+    expect(s.args).toContain("https://mcp.atlassian.com/v1/mcp/authv2");
+    expect(s.args.slice(-2)).toEqual(["--transport", "http-only"]);
+  });
+
+  test("migrates the retired /v1/sse URL", () => {
+    expect(rovoServer(rovo(', url: "https://mcp.atlassian.com/v1/sse"'))!.args).toContain("https://mcp.atlassian.com/v1/mcp/authv2");
+  });
+
+  test("transport http hands the URL to the agent CLI", () => {
+    const s = rovoServer(rovo(', transport: http'))!;
+    expect(s.url).toBe("https://mcp.atlassian.com/v1/mcp/authv2");
+    expect(toMcpJson([s], "claude").mcpServers.atlassian).toMatchObject({ type: "http", url: s.url });
+  });
+
+  test("off by default", () => {
+    expect(rovoServer(parseConfig(minimalConfig, { T: "x" }))).toBeNull();
   });
 });

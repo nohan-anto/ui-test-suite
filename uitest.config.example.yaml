@@ -32,8 +32,9 @@ jira:
   includeComments: true
   maxChildren: 100
   rovo:
-    enabled: false                   # give the agent the Atlassian Remote MCP (Rovo search, Confluence)
-    url: https://mcp.atlassian.com/v1/sse
+    enabled: false                   # give the agent the Atlassian Rovo MCP (Rovo search, Confluence)
+    url: https://mcp.atlassian.com/v1/mcp/authv2   # Streamable HTTP; the old /v1/sse endpoint was retired 30 June 2026
+    transport: mcp-remote            # mcp-remote = local bridge does the OAuth sign-in (any agent) | http = agent CLI connects itself
   publish:                           # `uitest publish`: post the report as a comment on the story (the only Jira write)
     enabled: false
     email: null                      # null = jira.email

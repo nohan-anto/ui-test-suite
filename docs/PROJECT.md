@@ -2,7 +2,7 @@
 
 | App version | Doc revision | Last updated |
 | --- | --- | --- |
-| 0.1.0 | 8 | 2026-11-08 |
+| 0.1.0 | 9 | 2026-11-09 |
 
 This is the single source of truth for any coding agent (Copilot, Claude, Codex or another) **working on this codebase**. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` all point here. Keep this file current when you change structure, commands or conventions.
 
@@ -106,7 +106,7 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | `repos/rest.ts` | REST extraction. `scanHttpRoutes`: Express/Nest, ASP.NET controllers + minimal APIs (`MapGroup`), Go net/http/gin/echo/chi/gorilla (groups), Spring, Flask/FastAPI. `scanHttpCalls`: fetch, axios, RESTDataSource, HttpClient, Go http/Sprintf, RestTemplate, requests. Also `normalisePath`, `pathsMatch` (trailing-segment match, `*` params) |
 | `repos/rest-impact.ts` | `RestLinker`: changed route (or the service function behind it, via `enclosingFunction` + `usages`, 2 hops) → gateway callers → owning resolver/BFF route (`ownersOf`) → UI ops/calls → screens; changed UI/gateway calls → the endpoints they hit; `restChainsToMarkdown` |
 | `repos/graphql-impact.ts` | `GraphqlLinker`: chains from a UI op to a gateway field/resolver to a subgraph field, plus type-field hints |
-| `mcp/servers.ts` | neutral MCP specs (chrome-devtools-mcp with `--browserUrl`/`--autoConnect`, Rovo via `mcp-remote`, extras) and per-agent formats (`toMcpJson`, `toCodexOverrides`) |
+| `mcp/servers.ts` | neutral MCP specs (chrome-devtools-mcp with `--browserUrl`/`--autoConnect`, Rovo at `https://mcp.atlassian.com/v1/mcp/authv2` via `mcp-remote --transport http-only` or natively with `jira.rovo.transport: http`; retired `/v1/sse` URLs are migrated by `rovoUrl`; extras) and per-agent formats (`toMcpJson`, `toCodexOverrides`) |
 | `agents/types.ts` | the `AgentAdapter`, `AgentRequest` and `Invocation` contracts |
 | `agents/cli-adapter.ts` | base class: `doctor()` checks `requiredFlags` against `--help`; `run()` writes temp files, runs, returns text. `cwd` = `workDirs[0]` |
 | `agents/{claude,codex,copilot,mock}.ts` | build each CLI's command line and parse usage (`parseUsage`; codex now runs with `--json`). Only `claude` is verified against a real CLI; `copilot`/`codex` follow their docs |
@@ -183,6 +183,7 @@ runs/<TICKET>/<runId>/
   - the codex adapter
   - `uitest chrome` actually launching Chrome on Windows
   - usage parsing against real Copilot/Codex output (Copilot `-p` may not print its summary; Codex `--json` field names vary by version)
+  - Rovo MCP on the new endpoint (OAuth via mcp-remote, admin allowance). It is also not yet limited to read-only tools or to the plan phase, so keep it off
   - `uitest publish` against real Jira (wiki rendering of the comment, thumbnails, attachment permissions)
   - GraphQL and REST extraction on the user's real repos (check the per-repo counts `uitest index` prints)
 - Next steps:
@@ -215,6 +216,10 @@ This guide grows with the application. Any agent that changes the code updates i
 Newest first. Commit hashes are from `master`.
 
 ### Unreleased
+- **Changed:** Rovo MCP moved from the retired HTTP+SSE endpoint (`/v1/sse`, shut down 30 June 2026) to Streamable HTTP at `https://mcp.atlassian.com/v1/mcp/authv2`.
+  - `mcp-remote` is pinned to `--transport http-only`.
+  - New `jira.rovo.transport` (`mcp-remote` | `http`).
+  - Old URLs are migrated automatically, and `doctor` warns.
 - **Fixed:** tests failed on a machine whose `.env` had `UITEST_SHOW_USAGE=true` (Bun loads `.env` in tests too). Test configs now get an empty env.
 - **Added:** AI usage reporting, toggled by `UITEST_SHOW_USAGE=true|false` (or `agent.showUsage`).
   - Shown per plan round and per test case, with totals; an *AI usage* column and run total in `test-report.md`; `usage.json` per run.

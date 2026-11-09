@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const ROVO_URL = "https://mcp.atlassian.com/v1/mcp/authv2";
+/** Retired Rovo endpoints → current one. */
+export const isRetiredRovoUrl = (u: string) => /mcp\.atlassian\.com\/v1\/sse\/?$/.test(u);
+
 export const McpServerSchema = z.object({
   name: z.string(),
   // stdio server
@@ -75,9 +79,15 @@ export const ConfigSchema = z.object({
     rovo: z
       .object({
         enabled: z.boolean().default(false),
-        url: z.string().default("https://mcp.atlassian.com/v1/sse"),
+        /** Atlassian Rovo MCP, Streamable HTTP. The old HTTP+SSE endpoint (/v1/sse) was retired on 30 June 2026. */
+        url: z.string().default(ROVO_URL),
+        /**
+         * "mcp-remote": a local npx bridge does the OAuth sign-in (works the same for every agent).
+         * "http": hand the URL to the agent CLI, which must support remote MCP servers and their OAuth itself.
+         */
+        transport: z.enum(["mcp-remote", "http"]).default("mcp-remote"),
       })
-      .default({ enabled: false, url: "https://mcp.atlassian.com/v1/sse" }),
+      .default({ enabled: false, url: ROVO_URL, transport: "mcp-remote" }),
     /**
      * `uitest publish`: post the test report as a Jira comment with screenshots attached.
      * The only Jira write uitest does; off by default, and needs a token allowed to add comments and attachments.
