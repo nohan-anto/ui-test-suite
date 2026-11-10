@@ -68,6 +68,8 @@ The report is at `runs/CIS-601/<run>/test-report.md`. Without `bun link`, use `b
 
 ## How it works
 
+Diagram of the architecture and both phases: [`docs/architecture.excalidraw`](docs/architecture.excalidraw). Open it at [excalidraw.com](https://excalidraw.com) (*Open* → choose the file) or in the VS Code Excalidraw extension.
+
 ```
 uitest (Bun CLI, does all deterministic work)
  ├─ Jira Cloud (GET only)  story, ACs, comments, links; epics → every child story

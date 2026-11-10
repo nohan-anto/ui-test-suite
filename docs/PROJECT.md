@@ -2,7 +2,7 @@
 
 | App version | Doc revision | Last updated |
 | --- | --- | --- |
-| 0.1.0 | 11 | 2026-11-09 |
+| 0.1.0 | 12 | 2026-11-10 |
 
 This is the single source of truth for any coding agent (Copilot, Claude, Codex or another) **working on this codebase**. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` all point here. Keep this file current when you change structure, commands or conventions.
 
@@ -82,6 +82,7 @@ test: browser/ensure+preflight ─► per case: prompts/test.md ─► agent ─
 | `uitest.config.example.yaml` | every config option, commented. **Update it when you add a config key.** |
 | `.env.example` | `JIRA_EMAIL`, `JIRA_API_TOKEN`, `GITLAB_TOKEN` |
 | `README.md` | user-facing setup and usage (including the Windows notes) |
+| `docs/architecture.excalidraw` | diagram: architecture, plan phase, test phase, one test case under the hood (open at excalidraw.com). **Update it when the architecture or flow changes** |
 | `prompts/plan.md`, `prompts/test.md`, `prompts/chat.md` | system prompts for the runtime agent: rules and the JSON output shape |
 | `.gitignore` | ignores `uitest.config.yaml`, `.env*`, `runs/`, `.uitest/` |
 
@@ -223,6 +224,7 @@ This guide grows with the application. Any agent that changes the code updates i
 Newest first. Commit hashes are from `master`.
 
 ### Unreleased
+- **Added:** `docs/architecture.excalidraw`, an architecture and phases diagram for presentations and onboarding.
 - **Added:** guided flow, the default command (`uitest` or `uitest CIS-601`). It goes ticket → reuse or make a plan → menu (start testing, chat, view, edit by hand, re-plan, exit) → Chrome launch offer → "are you signed in?" → choose cases (all, failed, pick) → start → results menu (re-run failed, chat, publish, menu, exit). Esc goes back. `Asker` gained `select`/`multiselect`.
 - **Added:** `uitest chat <ticket>`, a conversation with the read-only agent about its plan.
   - The user can ask which routes, screens or data a case uses; what they say to consider is saved to `notes.md`; plan changes are applied to `test-cases.md` after confirmation.
